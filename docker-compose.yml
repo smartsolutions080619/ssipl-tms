@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: ssipl_tms_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ssipl_user
+      POSTGRES_PASSWORD: ssipl_pass
+      POSTGRES_DB: ssipl_tms_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+
+  redis:
+    image: redis:7-alpine
+    container_name: ssipl_tms_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
