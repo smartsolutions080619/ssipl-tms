@@ -118,26 +118,25 @@ export class AuthService {
 
   async forgotPassword(email: string) {
     const user = await this.userRepo.findOne({ where: { email } });
-
-    // Always return same message — security ke liye
+  
     if (!user) {
       return { message: 'If this email exists, a reset link has been sent' };
     }
-
+  
     const resetToken = crypto.randomBytes(32).toString('hex');
     const resetTokenHash = crypto
       .createHash('sha256')
       .update(resetToken)
       .digest('hex');
-
-    // Store hash in DB — 1 hour expiry
-    user.resetPasswordToken = resetTokenHash;
-    user.resetPasswordExpires = new Date(Date.now() + 3600000);
-    await this.userRepo.save(user);
-
-    // TODO: Email bhejne ka kaam Phase 2 mein hoga
+  
+    // Direct query use karo — entity save ki jagah
+    await this.userRepo.query(
+      `UPDATE users SET reset_password_token = $1, reset_password_expires = $2 WHERE email = $3`,
+      [resetTokenHash, new Date(Date.now() + 3600000), email]
+    );
+  
     console.log(`Reset token for ${email}: ${resetToken}`);
-
+  
     return { message: 'If this email exists, a reset link has been sent' };
   }
 

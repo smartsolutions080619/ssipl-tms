@@ -1,9 +1,10 @@
 import { Controller, Post, Get, Body } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiSecurity } from '@nestjs/swagger';
 import { TenantService } from './tenant.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 
 @ApiTags('Tenants')
+// @ApiSecurity('X-Tenant-ID')
 @Controller('tenants')
 export class TenantController {
   constructor(private readonly tenantService: TenantService) {}

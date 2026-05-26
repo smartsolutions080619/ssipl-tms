@@ -35,16 +35,16 @@ async function bootstrap() {
   const config = new DocumentBuilder()
   .setTitle('SSIPL TMS API')
   .setDescription('SSIPL Task Management System API')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
+  .setVersion('1.0')
+  .addBearerAuth()
+  .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
   console.log(`🚀 SSIPL TMS API running on: http://localhost:${port}/api/v1`);
-console.log(`🔗 Swagger docs at: http://localhost:${port}/api/docs`);
+  console.log(`🔗 Swagger docs at: http://localhost:${port}/api/docs`);
 }
 
 bootstrap();
