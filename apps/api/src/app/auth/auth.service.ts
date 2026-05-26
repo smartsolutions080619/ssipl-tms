@@ -57,25 +57,27 @@ export class AuthService {
     const user = await this.userRepo.findOne({
       where: { email: dto.email, isActive: true },
     });
-
+  
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
-
+  
     const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
-
+  
     const payload = {
       sub: user.id,
       email: user.email,
       tenantId,
+      role: user.roleId,
+      permissions: [],
     };
-
+  
     const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
-
+  
     return {
       accessToken,
       refreshToken,
