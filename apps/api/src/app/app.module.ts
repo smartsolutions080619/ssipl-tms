@@ -18,6 +18,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
 import { UsersModule } from './users/dto/users.module';
 import { RolesModule } from './roles/roles.module';
 import { Role } from './roles/role.entity';
+import { TasksModule } from './tasks/tasks.module';
+import { Task } from './tasks/task.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -33,7 +35,7 @@ import { Role } from './roles/role.entity';
         username: configService.get('DATABASE_USER'),
         password: configService.get('DATABASE_PASSWORD'),
         database: configService.get('DATABASE_NAME'),
-        entities: [Tenant, ApiKey, User, Role],
+        entities: [Tenant, ApiKey, User, Role, Task],   
         synchronize: false,
         logging: true,
       }),
@@ -45,6 +47,7 @@ import { Role } from './roles/role.entity';
     TenantModule,
     UsersModule,
     RolesModule,
+    TasksModule,
   ],
   controllers: [AppController],
   providers: [
