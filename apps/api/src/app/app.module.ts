@@ -15,7 +15,9 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guards/jwt.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
-
+import { UsersModule } from './users/dto/users.module';
+import { RolesModule } from './roles/roles.module';
+import { Role } from './roles/role.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -31,7 +33,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
         username: configService.get('DATABASE_USER'),
         password: configService.get('DATABASE_PASSWORD'),
         database: configService.get('DATABASE_NAME'),
-        entities: [Tenant, ApiKey, User],
+        entities: [Tenant, ApiKey, User, Role],
         synchronize: false,
         logging: true,
       }),
@@ -41,6 +43,8 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     QueueModule,
     AuthModule,
     TenantModule,
+    UsersModule,
+    RolesModule,
   ],
   controllers: [AppController],
   providers: [
@@ -67,6 +71,7 @@ export class AppModule {
         { path: 'health', method: RequestMethod.GET },
         { path: 'tenants', method: RequestMethod.POST },
       )
+      
       .forRoutes({ path: '*path', method: RequestMethod.ALL });
   }
 }

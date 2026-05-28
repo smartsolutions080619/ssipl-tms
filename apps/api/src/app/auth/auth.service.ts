@@ -67,12 +67,26 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
   
+    // Role name 
+    let roleName = null;
+    let permissions = [];
+    if (user.roleId) {
+      const roleResult = await this.userRepo.query(
+        `SELECT name, permissions FROM roles WHERE id = $1`,
+        [user.roleId]
+      );
+      if (roleResult.length > 0) {
+        roleName = roleResult[0].name;
+        permissions = roleResult[0].permissions;
+      }
+    }
+  
     const payload = {
       sub: user.id,
       email: user.email,
       tenantId,
-      role: user.roleId,
-      permissions: [],
+      role: roleName,
+      permissions,
     };
   
     const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
@@ -86,6 +100,7 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        role: roleName,
       },
     };
   }
