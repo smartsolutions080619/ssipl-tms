@@ -80,6 +80,35 @@ import {
       await this.taskRepo.save(task);
       return { message: `Task ${task.taskNumber} deleted successfully` };
     }
+
+    async assignTask(taskId: string, assigneeId: string) {
+      const task = await this.findOne(taskId);
+      task.assigneeId = assigneeId;
+      const saved = await this.taskRepo.save(task);
+      return {
+        message: `Task ${task.taskNumber} assigned successfully`,
+        task: {
+          id: saved.id,
+          taskNumber: saved.taskNumber,
+          title: saved.title,
+          assigneeId: saved.assigneeId,
+        },
+      };
+    }
+    
+    async getMyTasks(userId: string) {
+      return this.taskRepo.find({
+        where: { assigneeId: userId, deletedAt: IsNull() },
+        order: { createdAt: 'DESC' },
+      });
+    }
+    
+    async unassignTask(taskId: string) {
+      const task = await this.findOne(taskId);
+      task.assigneeId = null;
+      await this.taskRepo.save(task);
+      return { message: `Task ${task.taskNumber} unassigned successfully` };
+    }
   
     // Sub-task depth check — max 3 levels
     private async checkSubTaskDepth(parentId: string, currentDepth: number): Promise<void> {
