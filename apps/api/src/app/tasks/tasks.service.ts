@@ -165,6 +165,47 @@ export class TasksService {
     return { message: `Task ${task.taskNumber} unassigned successfully` };
   }
 
+  async changeStatus(taskId: string, status: string, userId: string) {
+    const task = await this.findOne(taskId);
+    const oldStatus = task.status;
+  
+    // Valid transitions check
+    const validTransitions: Record<string, string[]> = {
+      TODO: ['IN_PROGRESS', 'CANCELLED'],
+      IN_PROGRESS: ['IN_REVIEW', 'TODO', 'CANCELLED'],
+      IN_REVIEW: ['DONE', 'IN_PROGRESS', 'CANCELLED'],
+      DONE: ['IN_PROGRESS'],
+      CANCELLED: ['TODO'],
+    };
+  
+    const allowed = validTransitions[oldStatus] || [];
+    if (!allowed.includes(status)) {
+      throw new BadRequestException(
+        `Cannot change status from ${oldStatus} to ${status}. Allowed: ${allowed.join(', ')}`,
+      );
+    }
+  
+    task.status = status;
+    const saved = await this.taskRepo.save(task);
+  
+    await this.activityLogService.log(
+      userId,
+      ActivityAction.STATUS_CHANGED,
+      taskId,
+      { status: oldStatus },
+      { status },
+    );
+  
+    return {
+      message: `Status changed from ${oldStatus} to ${status}`,
+      task: {
+        id: saved.id,
+        taskNumber: saved.taskNumber,
+        status: saved.status,
+      },
+    };
+  }
+
   private async checkSubTaskDepth(parentId: string, currentDepth: number): Promise<void> {
     if (currentDepth >= 3) {
       throw new BadRequestException('Maximum sub-task depth of 3 levels exceeded');

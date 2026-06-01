@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Delete,
-  Body, Param, UseGuards,
+  Body, Param, UseGuards, Patch,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
@@ -82,6 +82,15 @@ async getConfig() {
     @CurrentUser() user: any,
   ) {
     return this.tasksService.assignTask(id, assigneeId, user.userId);
+  }
+  @Patch(':id/status')
+  @ApiOperation({ summary: 'Change task status with workflow validation' })
+  async changeStatus(
+    @Param('id') id: string,
+    @Body('status') status: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.tasksService.changeStatus(id, status, user.userId);
   }
 
   @Put(':id/unassign')
