@@ -22,6 +22,8 @@ import { TasksModule } from './tasks/tasks.module';
 import { Task } from './tasks/task.entity';
 import { CommentsModule } from './comments/comments.module';
 import { Comment } from './comments/comment.entity';
+import { ActivityLogModule } from './activity/activity-log.module';
+import { ActivityLog } from './activity/activity-log.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -37,7 +39,7 @@ import { Comment } from './comments/comment.entity';
         username: configService.get('DATABASE_USER'),
         password: configService.get('DATABASE_PASSWORD'),
         database: configService.get('DATABASE_NAME'),
-        entities: [Tenant, ApiKey, User, Role, Task, Comment],   
+        entities: [Tenant, ApiKey, User, Role, Task, Comment, ActivityLog],   
         synchronize: false,
         logging: true,
       }),
@@ -51,6 +53,7 @@ import { Comment } from './comments/comment.entity';
     RolesModule,
     TasksModule,
     CommentsModule,
+    ActivityLogModule,
   ],
   controllers: [AppController],
   providers: [

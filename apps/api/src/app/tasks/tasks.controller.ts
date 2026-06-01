@@ -24,10 +24,7 @@ export class TasksController {
 
   @Post()
   @ApiOperation({ summary: 'Create a new task' })
-  async create(
-    @Body() dto: CreateTaskDto,
-    @CurrentUser() user: any,
-  ) {
+  async create(@Body() dto: CreateTaskDto, @CurrentUser() user: any) {
     return this.tasksService.create(dto, user.userId);
   }
 
@@ -54,25 +51,30 @@ export class TasksController {
   async assignTask(
     @Param('id') id: string,
     @Body('assigneeId') assigneeId: string,
+    @CurrentUser() user: any,
   ) {
-    return this.tasksService.assignTask(id, assigneeId);
+    return this.tasksService.assignTask(id, assigneeId, user.userId);
   }
 
   @Put(':id/unassign')
   @ApiOperation({ summary: 'Unassign task' })
-  async unassignTask(@Param('id') id: string) {
-    return this.tasksService.unassignTask(id);
+  async unassignTask(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.tasksService.unassignTask(id, user.userId);
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Update task' })
-  async update(@Param('id') id: string, @Body() dto: UpdateTaskDto) {
-    return this.tasksService.update(id, dto);
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateTaskDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.tasksService.update(id, dto, user.userId);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete task (soft delete)' })
-  async remove(@Param('id') id: string) {
-    return this.tasksService.remove(id);
+  async remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.tasksService.remove(id, user.userId);
   }
 }
