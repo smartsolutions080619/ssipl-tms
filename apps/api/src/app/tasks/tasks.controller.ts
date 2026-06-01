@@ -22,11 +22,39 @@ export class TasksController {
     return this.tasksService.findAll();
   }
 
+  
+
   @Post()
   @ApiOperation({ summary: 'Create a new task' })
   async create(@Body() dto: CreateTaskDto, @CurrentUser() user: any) {
     return this.tasksService.create(dto, user.userId);
   }
+
+  @Get('config')
+@ApiOperation({ summary: 'Get task types, statuses and priorities' })
+async getConfig() {
+  return {
+    statuses: [
+      { value: 'TODO', label: 'To Do' },
+      { value: 'IN_PROGRESS', label: 'In Progress' },
+      { value: 'IN_REVIEW', label: 'In Review' },
+      { value: 'DONE', label: 'Done' },
+      { value: 'CANCELLED', label: 'Cancelled' },
+    ],
+    priorities: [
+      { value: 'LOW', label: 'Low' },
+      { value: 'MEDIUM', label: 'Medium' },
+      { value: 'HIGH', label: 'High' },
+      { value: 'CRITICAL', label: 'Critical' },
+    ],
+    types: [
+      { value: 'TASK', label: 'Task' },
+      { value: 'BUG', label: 'Bug' },
+      { value: 'FEATURE', label: 'Feature' },
+      { value: 'IMPROVEMENT', label: 'Improvement' },
+    ],
+  };
+}
 
   @Get('my-tasks')
   @ApiOperation({ summary: 'Get my assigned tasks' })
