@@ -10,6 +10,7 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { ActivityLogService } from '../activity/activity-log.service';
 import { ActivityAction } from '../activity/activity-log.entity';
+import { NotificationsService } from '../notifications/notifications.service';  
 
 @Injectable()
 export class TasksService {
@@ -17,6 +18,7 @@ export class TasksService {
     @InjectRepository(Task)
     private readonly taskRepo: Repository<Task>,
     private readonly activityLogService: ActivityLogService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private async generateTaskNumber(): Promise<string> {
@@ -159,6 +161,8 @@ export class TasksService {
       { assigneeId: oldAssignee },
       { assigneeId },
     );
+
+    await this.notificationsService.notifyTaskAssigned(assigneeId, task.taskNumber, task.title);
 
     return {
       message: `Task ${task.taskNumber} assigned successfully`,

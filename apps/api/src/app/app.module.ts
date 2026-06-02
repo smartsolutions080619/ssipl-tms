@@ -28,6 +28,8 @@ import { DepartmentsModule } from './departments/departments.module';
 import { Department } from './departments/department.entity';
 import { AdminModule } from './admin/admin.module';
 import { AdminConfig } from './admin/admin-config.entity';
+import { NotificationsModule } from './notifications/notifications.module';
+import { Notification } from './notifications/notification.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -43,7 +45,7 @@ import { AdminConfig } from './admin/admin-config.entity';
         username: configService.get('DATABASE_USER'),
         password: configService.get('DATABASE_PASSWORD'),
         database: configService.get('DATABASE_NAME'),
-        entities: [Tenant, ApiKey, User, Role, Task, Comment, ActivityLog, Department, AdminConfig],   
+        entities: [Tenant, ApiKey, User, Role, Task, Comment, ActivityLog, Department, AdminConfig, Notification],   
         synchronize: false,
         logging: true,
       }),
@@ -60,6 +62,7 @@ import { AdminConfig } from './admin/admin-config.entity';
     ActivityLogModule,
     DepartmentsModule,
     AdminModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [
