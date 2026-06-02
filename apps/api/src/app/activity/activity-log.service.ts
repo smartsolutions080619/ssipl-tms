@@ -41,4 +41,29 @@ export class ActivityLogService {
       take: 50,
     });
   }
+
+  async getAuditLog(filters: {
+    userId?: string;
+    action?: string;
+    taskId?: string;
+    limit?: number;
+  }) {
+    const query = this.activityRepo.createQueryBuilder('log')
+      .orderBy('log.created_at', 'DESC')
+      .take(filters.limit || 100);
+
+    if (filters.userId) {
+      query.andWhere('log.user_id = :userId', { userId: filters.userId });
+    }
+
+    if (filters.action) {
+      query.andWhere('log.action = :action', { action: filters.action });
+    }
+
+    if (filters.taskId) {
+      query.andWhere('log.task_id = :taskId', { taskId: filters.taskId });
+    }
+
+    return query.getMany();
+  }
 }
