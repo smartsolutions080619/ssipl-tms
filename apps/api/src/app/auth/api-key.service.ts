@@ -54,4 +54,37 @@ export class ApiKeyService {
     await this.apiKeyRepo.save(apiKey);
     return { apiKey, rawKey: key };
   }
+
+  async getApiKeysByTenant(tenantId: string) {
+    // tenantId se tenant UUID fetch karo
+    const result = await this.apiKeyRepo.query(
+      `SELECT id FROM public.tenants WHERE slug = $1`,
+      [tenantId]
+    );
+  
+    if (!result.length) return [];
+  
+    const tenantUuid = result[0].id;
+  
+    const keys = await this.apiKeyRepo.find({
+      where: { tenantId: tenantUuid, isActive: true },
+      select: {
+        id: true,
+        name: true,
+        keyPrefix: true,
+        isActive: true,
+        lastUsedAt: true,
+        createdAt: true,
+      },
+    });
+    return keys;
+  }
+
+  async revokeApiKey(id: string) {
+    const key = await this.apiKeyRepo.findOne({ where: { id } });
+    if (!key) throw new Error('API key not found');
+    key.isActive = false;
+    await this.apiKeyRepo.save(key);
+    return { message: `API key "${key.name}" revoked successfully` };
+  }
 }
