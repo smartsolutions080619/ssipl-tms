@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Delete,
-  Body, Param, UseGuards, Patch,
+  Body, Param, UseGuards, Patch,Query
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
@@ -17,10 +17,16 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get all tasks' })
-  async findAll() {
-    return this.tasksService.findAll();
-  }
+@ApiOperation({ summary: 'Get all tasks with optional filters' })
+async findAll(
+  @Query('status') status?: string,
+  @Query('priority') priority?: string,
+  @Query('type') type?: string,
+  @Query('assigneeId') assigneeId?: string,
+  @Query('search') search?: string,
+) {
+  return this.tasksService.findAll({ status, priority, type, assigneeId, search });
+}
 
   
 

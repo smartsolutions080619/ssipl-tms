@@ -26,11 +26,40 @@ export class TasksService {
     return `TSK-${year}-${number}`;
   }
 
-  async findAll() {
-    return this.taskRepo.find({
-      where: { deletedAt: IsNull() },
-      order: { createdAt: 'DESC' },
-    });
+  async findAll(filters?: {
+    status?: string;
+    priority?: string;
+    type?: string;
+    assigneeId?: string;
+    search?: string;
+  }) {
+    const query = this.taskRepo.createQueryBuilder('task')
+      .where('task.deleted_at IS NULL');
+  
+    if (filters?.status) {
+      query.andWhere('task.status = :status', { status: filters.status });
+    }
+  
+    if (filters?.priority) {
+      query.andWhere('task.priority = :priority', { priority: filters.priority });
+    }
+  
+    if (filters?.type) {
+      query.andWhere('task.type = :type', { type: filters.type });
+    }
+  
+    if (filters?.assigneeId) {
+      query.andWhere('task.assignee_id = :assigneeId', { assigneeId: filters.assigneeId });
+    }
+  
+    if (filters?.search) {
+      query.andWhere(
+        '(LOWER(task.title) LIKE :search OR LOWER(task.description) LIKE :search OR task.task_number LIKE :search)',
+        { search: `%${filters.search.toLowerCase()}%` },
+      );
+    }
+  
+    return query.orderBy('task.created_at', 'DESC').getMany();
   }
 
   async findOne(id: string) {
