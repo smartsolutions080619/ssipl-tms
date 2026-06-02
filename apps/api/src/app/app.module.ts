@@ -26,6 +26,8 @@ import { ActivityLogModule } from './activity/activity-log.module';
 import { ActivityLog } from './activity/activity-log.entity';
 import { DepartmentsModule } from './departments/departments.module';
 import { Department } from './departments/department.entity';
+import { AdminModule } from './admin/admin.module';
+import { AdminConfig } from './admin/admin-config.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -41,7 +43,7 @@ import { Department } from './departments/department.entity';
         username: configService.get('DATABASE_USER'),
         password: configService.get('DATABASE_PASSWORD'),
         database: configService.get('DATABASE_NAME'),
-        entities: [Tenant, ApiKey, User, Role, Task, Comment, ActivityLog, Department],   
+        entities: [Tenant, ApiKey, User, Role, Task, Comment, ActivityLog, Department, AdminConfig],   
         synchronize: false,
         logging: true,
       }),
@@ -57,6 +59,7 @@ import { Department } from './departments/department.entity';
     CommentsModule,
     ActivityLogModule,
     DepartmentsModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [
