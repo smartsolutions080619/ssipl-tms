@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <style>
+    body{font-family:-apple-system,sans-serif;background:#f0f4f4;margin:0;padding:32px 16px}
+    .card{background:white;border-radius:16px;max-width:480px;margin:0 auto;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)}
+    .header{background:linear-gradient(135deg,#1a3a3f,#228b98);padding:32px;text-align:center}
+    .logo{color:white;font-size:22px;font-weight:800}
+    .sub{color:rgba(255,255,255,0.5);font-size:12px;display:block;margin-top:4px}
+    .body{padding:32px}
+    h2{color:#1a2e2f;font-size:20px;font-weight:700;margin:0 0 12px}
+    p{color:#3d6b70;font-size:14px;line-height:1.6;margin:0 0 16px}
+    .row{display:flex;align-items:center;gap:12px;background:#f8fafa;border-radius:10px;padding:14px 16px;margin:16px 0}
+    .old{color:#94a3b8;font-weight:600;font-size:13px}
+    .arr{color:#228b98;font-size:18px}
+    .new{color:#228b98;font-weight:700;font-size:13px}
+    .footer{padding:20px 32px;background:#f8fafa;border-top:1px solid #e8f1f2;color:#7aaa8a;font-size:12px;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="logo">SSIPL TMS<span class="sub">Task Management System</span></div>
+    </div>
+    <div class="body">
+      <h2>Task status updated</h2>
+      <p>Hi {{name}}, your task <strong>{{taskNumber}}</strong> — <em>{{taskTitle}}</em> status changed:</p>
+      <div class="row">
+        <span class="old">{{oldStatus}}</span>
+        <span class="arr">→</span>
+        <span class="new">{{newStatus}}</span>
+      </div>
+      <p>Login to SSIPL TMS for full details.</p>
+    </div>
+    <div class="footer">© 2026 SSIPL TMS · The Smart Solutions</div>
+  </div>
+</body>
+</html>

@@ -12,6 +12,7 @@ import { JwtAuthGuard } from './guards/jwt.guard';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { TokenBlacklistService } from './token-blacklist.service';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TokenBlacklistService } from './token-blacklist.service';
       }),
       inject: [ConfigService],
     }),
+    MailModule,  // ← yahi missing tha
   ],
   providers: [
     ApiKeyService,

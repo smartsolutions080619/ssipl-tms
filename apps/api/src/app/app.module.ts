@@ -1,6 +1,8 @@
 import { Module, MiddlewareConsumer, RequestMethod } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
@@ -30,27 +32,47 @@ import { AdminModule } from './admin/admin.module';
 import { AdminConfig } from './admin/admin-config.entity';
 import { NotificationsModule } from './notifications/notifications.module';
 import { Notification } from './notifications/notification.entity';
+import { MailModule } from './mail/mail.module';
+import { UploadModule } from './upload/upload.module';
+import { ReportsModule } from './reports/reports.module';
+import { LeavesModule } from './leaves/leaves.module';
+import { LeaveRequest } from './leaves/leave-request.entity';
+import { LeaveBalance } from './leaves/leave-balance.entity';
+import { Announcement } from './notifications/announcement.entity';
+import { HolidaysModule } from './holidays/holidays.module';
+import { Holiday } from './holidays/holiday.entity';
+
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'uploads'),
+      serveRoot: '/uploads',
+      serveStaticOptions: { index: false },
     }),
+
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
-        host: configService.get('DATABASE_HOST'),
-        port: +configService.get<number>('DATABASE_PORT'),
+        host:     configService.get('DATABASE_HOST'),
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        port:     +configService.get<number>('DATABASE_PORT')!,
         username: configService.get('DATABASE_USER'),
         password: configService.get('DATABASE_PASSWORD'),
         database: configService.get('DATABASE_NAME'),
-        entities: [Tenant, ApiKey, User, Role, Task, Comment, ActivityLog, Department, AdminConfig, Notification],   
+        entities: [
+          Tenant, ApiKey, User, Role, Task, Comment, ActivityLog,
+          Department, AdminConfig, Notification, Announcement,
+          LeaveRequest, LeaveBalance, Holiday,
+        ],
         synchronize: false,
         logging: true,
       }),
       inject: [ConfigService],
     }),
+
     RedisCacheModule,
     QueueModule,
     AuthModule,
@@ -63,22 +85,18 @@ import { Notification } from './notifications/notification.entity';
     DepartmentsModule,
     AdminModule,
     NotificationsModule,
+    MailModule,
+    UploadModule,
+    ReportsModule,
+    LeavesModule,
+    HolidaysModule,  
   ],
   controllers: [AppController],
   providers: [
     AppService,
-    {
-      provide: APP_GUARD,
-      useClass: JwtAuthGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: RolesGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: PermissionsGuard,
-    },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
 export class AppModule {
@@ -86,10 +104,10 @@ export class AppModule {
     consumer
       .apply(TenantMiddleware)
       .exclude(
-        { path: 'health', method: RequestMethod.GET },
+        { path: 'health',  method: RequestMethod.GET },
         { path: 'tenants', method: RequestMethod.POST },
+        { path: 'uploads', method: RequestMethod.ALL },
       )
-      
       .forRoutes({ path: '*path', method: RequestMethod.ALL });
   }
 }
