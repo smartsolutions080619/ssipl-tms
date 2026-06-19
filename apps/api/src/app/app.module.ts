@@ -41,55 +41,42 @@ import { LeaveBalance } from './leaves/leave-balance.entity';
 import { Announcement } from './notifications/announcement.entity';
 import { HolidaysModule } from './holidays/holidays.module';
 import { Holiday } from './holidays/holiday.entity';
+import { ProjectsModule } from './projects/projects.module';
+import { Project } from './projects/project.entity';
+import { ProjectMember } from './projects/project-member.entity';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
-
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
       serveRoot: '/uploads',
       serveStaticOptions: { index: false },
     }),
-
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         host:     configService.get('DATABASE_HOST'),
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        port:     +configService.get<number>('DATABASE_PORT')!,
+        port:     +(configService.get<number>('DATABASE_PORT') ?? 5432),
         username: configService.get('DATABASE_USER'),
         password: configService.get('DATABASE_PASSWORD'),
         database: configService.get('DATABASE_NAME'),
         entities: [
           Tenant, ApiKey, User, Role, Task, Comment, ActivityLog,
           Department, AdminConfig, Notification, Announcement,
-          LeaveRequest, LeaveBalance, Holiday,
+          LeaveRequest, LeaveBalance, Holiday, Project, ProjectMember,
         ],
         synchronize: false,
         logging: true,
       }),
       inject: [ConfigService],
     }),
-
-    RedisCacheModule,
-    QueueModule,
-    AuthModule,
-    TenantModule,
-    UsersModule,
-    RolesModule,
-    TasksModule,
-    CommentsModule,
-    ActivityLogModule,
-    DepartmentsModule,
-    AdminModule,
-    NotificationsModule,
-    MailModule,
-    UploadModule,
-    ReportsModule,
-    LeavesModule,
-    HolidaysModule,  
+    RedisCacheModule, QueueModule, AuthModule, TenantModule,
+    UsersModule, RolesModule, TasksModule, CommentsModule,
+    ActivityLogModule, DepartmentsModule, AdminModule,
+    NotificationsModule, MailModule, UploadModule, ReportsModule,
+    LeavesModule, HolidaysModule, ProjectsModule,
   ],
   controllers: [AppController],
   providers: [
@@ -101,8 +88,7 @@ import { Holiday } from './holidays/holiday.entity';
 })
 export class AppModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(TenantMiddleware)
+    consumer.apply(TenantMiddleware)
       .exclude(
         { path: 'health',  method: RequestMethod.GET },
         { path: 'tenants', method: RequestMethod.POST },
