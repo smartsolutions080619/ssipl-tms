@@ -9,42 +9,46 @@ import compression = require('compression');
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Global exception filter
   app.useGlobalFilters(new GlobalExceptionFilter());
 
-  // Security
-  app.use(helmet());
+  // Helmet — disable crossOriginResourcePolicy so images load cross-origin
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginEmbedderPolicy: false,
+  }));
+
   app.use(compression());
 
-  // CORS
-  app.enableCors();
+  // CORS — allow Netlify frontend
+  app.enableCors({
+    origin: [
+      process.env.FRONTEND_URL || 'http://localhost:5173',
+      'https://ssipl-tms-dashboard.netlify.app',
+    ],
+    credentials: true,
+    methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+    allowedHeaders: ['Content-Type','Authorization','X-Tenant-ID'],
+  });
 
-  // Global prefix
   app.setGlobalPrefix('api/v1');
 
-  // Validation
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  app.useGlobalPipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  }));
 
-  // Swagger
   const config = new DocumentBuilder()
-  .setTitle('SSIPL TMS API')
-  .setDescription('SSIPL Task Management System API')
-  .setVersion('1.0')
-  .addBearerAuth()
-  .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+    .setTitle('SSIPL TMS API')
+    .setDescription('SSIPL Task Management System API')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`🚀 SSIPL TMS API running on: http://localhost:${port}/api/v1`);
-  console.log(`🔗 Swagger docs at: http://localhost:${port}/api/docs`);
+  console.log(`🚀 SSIPL TMS API running on port ${port}`);
 }
 
 bootstrap();

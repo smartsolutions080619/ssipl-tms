@@ -9,7 +9,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { TaskPriority, TaskType } from '../task.entity';
 
 export class CreateTaskDto {
-  @ApiProperty()    
+  @ApiProperty()
   @IsString()
   title!: string;
 
@@ -37,6 +37,11 @@ export class CreateTaskDto {
   @IsOptional()
   @IsUUID()
   parentTaskId?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
 
   @ApiProperty({ required: false, description: 'ISO date string' })
   @IsOptional()

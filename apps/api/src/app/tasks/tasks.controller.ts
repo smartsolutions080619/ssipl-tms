@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
+
 import {
   Controller, Get, Post, Put, Delete,
   Body, Param, UseGuards, Patch, Query
