@@ -62,7 +62,7 @@ export class Task {
   projectId!: string | null;
 
   @Column({ name: 'due_date', nullable: true })
-  dueDate!: Date;
+  dueDate!: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

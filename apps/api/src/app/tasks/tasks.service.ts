@@ -36,7 +36,7 @@ export class TasksService {
       assigneeId?: string;
       search?: string;
     },
-    currentUser?: any,
+    currentUser?: { userId: string; role: string },
   ) {
     const query = this.taskRepo.createQueryBuilder('task')
       .leftJoin('users', 'assignee', 'assignee.id::text = task.assignee_id::text')
@@ -55,7 +55,8 @@ export class TasksService {
       .where('task.deleted_at IS NULL');
 
     // ── Role-based visibility ──
-    const role = currentUser?.role?.toLowerCase();
+    if (!currentUser) return [];
+    const role = currentUser.role.toLowerCase();
 
     if (role === 'admin') {
       // Admin sees ALL tasks — no filter
@@ -68,7 +69,7 @@ export class TasksService {
          ) AND deleted_at IS NULL`,
         [currentUser.userId]
       );
-      const deptUserIds = deptUsers.map((u: any) => u.id);
+      const deptUserIds = deptUsers.map((u: { id: string }) => u.id);
 
       if (deptUserIds.length > 0) {
         query.andWhere(
@@ -157,6 +158,7 @@ export class TasksService {
       assigneeId:   dto.assigneeId,
       reporterId,
       parentTaskId: dto.parentTaskId,
+      projectId:    dto.projectId,
       dueDate:      dto.dueDate ? new Date(dto.dueDate) : undefined,
     });
 
@@ -255,7 +257,8 @@ export class TasksService {
 
   async unassignTask(taskId: string, userId: string) {
     const task = await this.findOne(taskId);
-    task.assigneeId = null;
+    task.assigneeId = null as unknown as string;
+
     await this.taskRepo.save(task);
 
     await this.activityLogService.log(userId, ActivityAction.TASK_UNASSIGNED, taskId, undefined, undefined);
