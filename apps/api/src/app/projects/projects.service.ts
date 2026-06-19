@@ -1,11 +1,24 @@
 import {
-  Injectable, NotFoundException, BadRequestException,
+  Injectable, NotFoundException, BadRequestException, 
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Project, ProjectStatus, ProjectPriority } from './project.entity';
 import { ProjectMember, ProjectMemberRole } from './project-member.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+
+type UpdateProjectDto = {
+  name?: string;
+  description?: string | null;
+  projectCode?: string | null;
+  status?: ProjectStatus;
+  priority?: ProjectPriority;
+  color?: string;
+  icon?: string;
+  startDate?: string;
+  endDate?: string;
+  progress?: number;
+};
 
 @Injectable()
 export class ProjectsService {
@@ -163,7 +176,7 @@ export class ProjectsService {
   }
 
   // ── Update project ──
-  async update(id: string, dto: Partial<{ name: string; description: string; status: ProjectStatus; priority: ProjectPriority; color: string; icon: string; startDate: string; endDate: string; progress: number; projectCode: string; }>) {
+  async update(id: string, dto: UpdateProjectDto) {
     const project = await this.projectRepo.findOne({ where: { id, deletedAt: IsNull() } });
     if (!project) throw new NotFoundException('Project not found');
 
@@ -284,5 +297,27 @@ export class ProjectsService {
     const progress = stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0;
     await this.projectRepo.update(projectId, { progress });
     return { progress };
+  }
+
+  // ── Project Comments ──
+  async getComments(projectId: string) {
+    return this.projectRepo.query(
+      `SELECT c.*, u.first_name, u.last_name, u.email
+       FROM tenant_ssipl.comments c
+       LEFT JOIN tenant_ssipl.users u ON u.id::text = c.user_id::text
+       WHERE c.project_id = $1
+       ORDER BY c.created_at ASC`,
+      [projectId]
+    );
+  }
+
+  async addComment(projectId: string, content: string, userId: string) {
+    const result = await this.projectRepo.query(
+      `INSERT INTO tenant_ssipl.comments (id, project_id, user_id, content, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW())
+       RETURNING *`,
+      [projectId, userId, content]
+    );
+    return result[0];
   }
 }

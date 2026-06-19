@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import {
   Controller, Get, Post, Put, Delete, Patch,
-  Body, Param, UseGuards,
+  Body, Param, UseGuards, Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
@@ -12,15 +13,6 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ProjectMemberRole } from './project-member.entity';
 import { ProjectStatus, ProjectPriority } from './project.entity';
 
-interface JwtUser { userId: string; role: string; }
-type CreateProjectBody = {
-  name: string; description?: string; projectCode?: string;
-  status?: ProjectStatus; priority?: ProjectPriority;
-  color?: string; icon?: string;
-  startDate?: string; endDate?: string;
-  memberIds?: string[]; departmentIds?: string[];
-};
-
 @ApiTags('Projects')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -30,7 +22,7 @@ export class ProjectsController {
 
   @Get()
   @ApiOperation({ summary: 'Get all projects (role-based visibility)' })
-  async findAll(@CurrentUser() user: JwtUser) {
+  async findAll(@CurrentUser() user: any) {
     return this.projectsService.findAll(user.userId, user.role);
   }
 
@@ -50,7 +42,7 @@ export class ProjectsController {
   @Roles(Role.ADMIN, Role.MANAGER)
   @UseGuards(RolesGuard)
   @ApiOperation({ summary: 'Create a new project (admin/manager)' })
-  async create(@Body() body: CreateProjectBody, @CurrentUser() user: JwtUser) {
+  async create(@Body() body: any, @CurrentUser() user: any) {
     return this.projectsService.create(body, user.userId);
   }
 
@@ -58,7 +50,7 @@ export class ProjectsController {
   @Roles(Role.ADMIN, Role.MANAGER)
   @UseGuards(RolesGuard)
   @ApiOperation({ summary: 'Update project' })
-  async update(@Param('id') id: string, @Body() body: Partial<CreateProjectBody>) {
+  async update(@Param('id') id: string, @Body() body: any) {
     return this.projectsService.update(id, body);
   }
 
@@ -79,7 +71,7 @@ export class ProjectsController {
   async addMember(
     @Param('id') id: string,
     @Body() body: { userId: string; role?: ProjectMemberRole },
-    @CurrentUser() user: JwtUser,
+    @CurrentUser() user: any,
   ) {
     return this.projectsService.addMember(id, body.userId, body.role || ProjectMemberRole.DEVELOPER, user.userId);
   }
@@ -91,7 +83,7 @@ export class ProjectsController {
   async addDepartment(
     @Param('id') id: string,
     @Body('departmentId') departmentId: string,
-    @CurrentUser() user: JwtUser,
+    @CurrentUser() user: any,
   ) {
     return this.projectsService.addDepartment(id, departmentId, user.userId);
   }
@@ -120,5 +112,23 @@ export class ProjectsController {
   @ApiOperation({ summary: 'Recalculate project progress from tasks' })
   async recalcProgress(@Param('id') id: string) {
     return this.projectsService.recalcProgress(id);
+  }
+
+  // ── Comments ──
+
+  @Get(':id/comments')
+  @ApiOperation({ summary: 'Get project comments' })
+  async getComments(@Param('id') id: string) {
+    return this.projectsService.getComments(id);
+  }
+
+  @Post(':id/comments')
+  @ApiOperation({ summary: 'Add comment to project' })
+  async addComment(
+    @Param('id') id: string,
+    @Body('content') content: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.projectsService.addComment(id, content, user.userId);
   }
 }
