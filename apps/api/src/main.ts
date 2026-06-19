@@ -21,10 +21,7 @@ async function bootstrap() {
 
   // CORS — allow Netlify frontend
   app.enableCors({
-    origin: [
-      process.env.FRONTEND_URL || 'http://localhost:5173',
-      'https://ssipl-tms-dashboard.netlify.app',
-    ],
+    origin: true,
     credentials: true,
     methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
     allowedHeaders: ['Content-Type','Authorization','X-Tenant-ID'],
