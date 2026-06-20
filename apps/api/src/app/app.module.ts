@@ -67,6 +67,7 @@ import { ProjectMember } from './projects/project-member.entity';
           Department, AdminConfig, Notification, Announcement,
           LeaveRequest, LeaveBalance, Holiday, Project, ProjectMember,
         ],
+        schema: 'tenant_ssipl',
         synchronize: false,
         logging: true,
       }),
