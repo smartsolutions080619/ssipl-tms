@@ -38,10 +38,9 @@ export class AuthService {
     });
     await this.userRepo.save(user);
 
-    // Notify all admins
     const admins = await this.userRepo.query(
-      `SELECT u.email, u.first_name FROM users u
-       INNER JOIN roles r ON r.id::text = u.role_id::text
+      `SELECT u.email, u.first_name FROM tenant_ssipl.users u
+       INNER JOIN tenant_ssipl.roles r ON r.id::text = u.role_id::text
        WHERE LOWER(r.name) = 'admin' AND u.status = 'ACTIVE' AND u.deleted_at IS NULL`
     );
     for (const admin of admins) {
@@ -55,31 +54,45 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, tenantId: string) {
-    const user = await this.userRepo.findOne({ where: { email: dto.email } });
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+    // Use raw query with explicit schema to avoid search_path issues
+    const users = await this.userRepo.query(
+      `SELECT * FROM tenant_ssipl.users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
+      [dto.email]
+    );
 
-    const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
+    console.log('LOGIN ATTEMPT:', dto.email, 'FOUND:', users.length > 0);
+
+    if (!users.length) throw new UnauthorizedException('Invalid credentials');
+
+    const u = users[0];
+    const isPasswordValid = await bcrypt.compare(dto.password, u.password_hash);
+
+    console.log('PASSWORD VALID:', isPasswordValid, 'HASH PREFIX:', u.password_hash?.slice(0, 15));
+
     if (!isPasswordValid) throw new UnauthorizedException('Invalid credentials');
 
-    if (user.status === UserStatus.PENDING)
-      throw new ForbiddenException('Your account is pending admin approval. Please wait for confirmation.');
-    if (user.status === UserStatus.REJECTED)
-      throw new ForbiddenException('Your account registration was rejected. Please contact the administrator.');
-    if (!user.isActive)
+    if (u.status === UserStatus.PENDING)
+      throw new ForbiddenException('Your account is pending admin approval.');
+    if (u.status === UserStatus.REJECTED)
+      throw new ForbiddenException('Your account registration was rejected.');
+    if (!u.is_active)
       throw new UnauthorizedException('Your account has been deactivated.');
 
     let roleName = null;
     let permissions = [];
-    if (user.roleId) {
-      const roleResult = await this.userRepo.query(`SELECT name, permissions FROM roles WHERE id = $1`, [user.roleId]);
+    if (u.role_id) {
+      const roleResult = await this.userRepo.query(
+        `SELECT name, permissions FROM tenant_ssipl.roles WHERE id = $1`,
+        [u.role_id]
+      );
       if (roleResult.length > 0) { roleName = roleResult[0].name; permissions = roleResult[0].permissions; }
     }
 
-    const payload = { sub: user.id, email: user.email, tenantId, role: roleName, permissions };
+    const payload = { sub: u.id, email: u.email, tenantId, role: roleName, permissions };
     return {
       accessToken:  this.jwtService.sign(payload, { expiresIn: '15m' }),
       refreshToken: this.jwtService.sign(payload, { expiresIn: '7d' }),
-      user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: roleName },
+      user: { id: u.id, email: u.email, firstName: u.first_name, lastName: u.last_name, role: roleName },
     };
   }
 
@@ -104,7 +117,7 @@ export class AuthService {
     const resetToken = crypto.randomBytes(32).toString('hex');
     const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
     await this.userRepo.query(
-      `UPDATE users SET reset_password_token = $1, reset_password_expires = $2 WHERE email = $3`,
+      `UPDATE tenant_ssipl.users SET reset_password_token = $1, reset_password_expires = $2 WHERE email = $3`,
       [resetTokenHash, new Date(Date.now() + 3600000), email]
     );
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
