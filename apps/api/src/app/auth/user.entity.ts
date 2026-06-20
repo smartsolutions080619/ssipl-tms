@@ -12,7 +12,7 @@ export enum UserStatus {
   REJECTED = 'REJECTED',
 }
 
-@Entity({ name: 'users' })
+@Entity({ name: 'users', schema: 'tenant_ssipl' })
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
