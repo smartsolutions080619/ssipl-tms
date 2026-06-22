@@ -5,6 +5,7 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { SearchController } from './search.controller';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { RedisCacheModule } from './cache/cache.module';
 import { QueueModule } from './queue/queue.module';
@@ -67,7 +68,6 @@ import { ProjectMember } from './projects/project-member.entity';
           Department, AdminConfig, Notification, Announcement,
           LeaveRequest, LeaveBalance, Holiday, Project, ProjectMember,
         ],
-        schema: 'tenant_ssipl',
         synchronize: false,
         logging: true,
       }),
@@ -79,7 +79,7 @@ import { ProjectMember } from './projects/project-member.entity';
     NotificationsModule, MailModule, UploadModule, ReportsModule,
     LeavesModule, HolidaysModule, ProjectsModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, SearchController],
   providers: [
     AppService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
