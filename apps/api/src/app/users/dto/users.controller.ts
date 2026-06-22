@@ -1,13 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Patch,
-  Delete,
-  Body,
-  Param,
-  UseGuards,
+  Controller, Get, Post, Put, Patch, Delete,
+  Body, Param, UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
@@ -26,35 +20,66 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  // ── PROFILE ROUTES FIRST (before :id) ──
+
+  @Get('profile/me')
+  @ApiOperation({ summary: 'Get my profile' })
+  async getMyProfile(@CurrentUser() user: any) {
+    return this.usersService.getMyProfile(user.userId);
+  }
+
+  @Put('profile/me')
+  @ApiOperation({ summary: 'Update my profile' })
+  async updateMyProfile(@CurrentUser() user: any, @Body() body: any) {
+    return this.usersService.updateMyProfile(user.userId, body);
+  }
+
+  @Put('profile/me/password')
+  @ApiOperation({ summary: 'Change my password' })
+  async changePassword(
+    @CurrentUser() user: any,
+    @Body() body: { currentPassword: string; newPassword: string },
+  ) {
+    return this.usersService.changePassword(user.userId, body.currentPassword, body.newPassword);
+  }
+
+  @Get('profile')
+  @ApiOperation({ summary: 'Get current user profile (legacy)' })
+  async getProfile(@CurrentUser() user: any) {
+    return this.usersService.getMyProfile(user.userId);
+  }
+
+  @Put('profile')
+  @ApiOperation({ summary: 'Update current user profile (legacy)' })
+  async updateProfile(@CurrentUser() user: any, @Body() dto: UpdateUserDto) {
+    return this.usersService.updateMyProfile(user.userId, dto);
+  }
+
+  // ── OTHER ROUTES ──
+
   @Get()
   @ApiOperation({ summary: 'Get all active users' })
   async findAll() {
     return this.usersService.findAll();
   }
 
-  // ── Pending approval requests ──
   @Get('pending')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Get all pending user registrations' })
+  @ApiOperation({ summary: 'Get pending user registrations' })
   async findPending() {
     return this.usersService.findPending();
   }
 
-  // ── Approve user ──
   @Patch(':id/approve')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Approve a pending user registration' })
-  async approve(
-    @Param('id') id: string,
-    @Body() body: { roleId: string; departmentId?: string },
-  ) {
+  @ApiOperation({ summary: 'Approve a pending user' })
+  async approve(@Param('id') id: string, @Body() body: { roleId: string; departmentId?: string }) {
     return this.usersService.approve(id, body.roleId, body.departmentId);
   }
 
-  // ── Reject user ──
   @Patch(':id/reject')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Reject a pending user registration' })
+  @ApiOperation({ summary: 'Reject a pending user' })
   async reject(@Param('id') id: string) {
     return this.usersService.reject(id);
   }
@@ -64,18 +89,6 @@ export class UsersController {
   @ApiOperation({ summary: 'Create a new user (admin)' })
   async create(@Body() dto: CreateUserDto) {
     return this.usersService.create(dto);
-  }
-
-  @Get('profile')
-  @ApiOperation({ summary: 'Get current user profile' })
-  async getProfile(@CurrentUser() user: any) {
-    return this.usersService.getProfile(user.userId);
-  }
-
-  @Put('profile')
-  @ApiOperation({ summary: 'Update current user profile' })
-  async updateProfile(@CurrentUser() user: any, @Body() dto: UpdateUserDto) {
-    return this.usersService.updateProfile(user.userId, dto);
   }
 
   @Get(':id')

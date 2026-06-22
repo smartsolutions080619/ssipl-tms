@@ -141,4 +141,54 @@ export class UsersService {
     await this.userRepo.save(user);
     return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName };
   }
+
+  // ── Add these methods to existing users.service.ts ──
+
+  async getMyProfile(userId: string) {
+    const [user] = await this.userRepo.query(
+      `SELECT u.id, u.email, u.first_name AS "firstName", u.last_name AS "lastName",
+              u.role_id AS "roleId", u.department_id AS "departmentId",
+              u.status, u.is_active AS "isActive", u.avatar, u.created_at AS "createdAt"
+       FROM tenant_ssipl.users u
+       WHERE u.id = $1 AND u.deleted_at IS NULL`,
+      [userId]
+    );
+    return user;
+  }
+
+  async updateMyProfile(userId: string, dto: { firstName?: string; lastName?: string; avatar?: string }) {
+    const sets: string[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vals: any[]    = [];
+    let idx = 1;
+    if (dto.firstName !== undefined) { sets.push(`first_name = $${idx++}`); vals.push(dto.firstName); }
+    if (dto.lastName  !== undefined) { sets.push(`last_name = $${idx++}`);  vals.push(dto.lastName); }
+    if (dto.avatar    !== undefined) { sets.push(`avatar = $${idx++}`);     vals.push(dto.avatar); }
+    if (!sets.length) return this.getMyProfile(userId);
+    sets.push(`updated_at = NOW()`);
+    vals.push(userId);
+    await this.userRepo.query(
+      `UPDATE tenant_ssipl.users SET ${sets.join(', ')} WHERE id = $${idx}`,
+      vals
+    );
+    return this.getMyProfile(userId);
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const [user] = await this.userRepo.query(
+      `SELECT id, password_hash FROM tenant_ssipl.users WHERE id = $1`,
+      [userId]
+    );
+    if (!user) throw new NotFoundException('User not found');
+
+    const valid = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!valid) throw new BadRequestException('Current password is incorrect');
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await this.userRepo.query(
+      `UPDATE tenant_ssipl.users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [newHash, userId]
+    );
+    return { message: 'Password changed successfully' };
+  }
 }
