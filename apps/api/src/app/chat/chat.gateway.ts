@@ -55,8 +55,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       SELECT r.*,
         (SELECT content FROM tenant_ssipl.chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) AS last_message,
         (SELECT created_at FROM tenant_ssipl.chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
-        (SELECT COUNT(*)::int FROM tenant_ssipl.chat_messages WHERE room_id = r.id) AS message_count
+        (SELECT COUNT(*)::int FROM tenant_ssipl.chat_messages WHERE room_id = r.id) AS message_count,
+        -- For DMs: get the other user's info
+        ou.id AS other_user_id,
+        ou.first_name AS other_first_name,
+        ou.last_name AS other_last_name,
+        ou.email AS other_email,
+        ou.avatar AS other_avatar
       FROM tenant_ssipl.chat_rooms r
+      LEFT JOIN tenant_ssipl.chat_room_members crm ON crm.room_id = r.id AND crm.user_id != $1
+      LEFT JOIN tenant_ssipl.users ou ON ou.id::text = crm.user_id::text AND r.type = 'direct'
       WHERE r.is_active = true
         AND (r.type = 'channel' OR r.id IN (
           SELECT room_id FROM tenant_ssipl.chat_room_members WHERE user_id = $1
@@ -153,7 +161,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('create_dm')
   async createDm(@ConnectedSocket() client: Socket, @MessageBody() targetUserId: string) {
     const userId = client.data.userId;
-    // Check if DM already exists
     const existing = await this.dataSource.query(`
       SELECT r.* FROM tenant_ssipl.chat_rooms r
       WHERE r.type = 'direct'
@@ -175,6 +182,24 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
       room = newRoom;
     }
-    client.emit('dm_created', room);
+
+    // Get other user info
+    const [otherUser] = await this.dataSource.query(
+      `SELECT id, first_name, last_name, email, avatar FROM tenant_ssipl.users WHERE id = $1`,
+      [targetUserId]
+    );
+
+    const roomWithUser = {
+      ...room,
+      other_user_id: otherUser.id,
+      other_first_name: otherUser.first_name,
+      other_last_name: otherUser.last_name,
+      other_email: otherUser.email,
+      other_avatar: otherUser.avatar,
+    };
+
+    client.emit('dm_created', roomWithUser);
+    // Refresh rooms list
+    await this.getRooms(client);
   }
 }
