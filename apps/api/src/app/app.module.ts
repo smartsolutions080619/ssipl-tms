@@ -45,6 +45,7 @@ import { Holiday } from './holidays/holiday.entity';
 import { ProjectsModule } from './projects/projects.module';
 import { Project } from './projects/project.entity';
 import { ProjectMember } from './projects/project-member.entity';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -77,7 +78,7 @@ import { ProjectMember } from './projects/project-member.entity';
     UsersModule, RolesModule, TasksModule, CommentsModule,
     ActivityLogModule, DepartmentsModule, AdminModule,
     NotificationsModule, MailModule, UploadModule, ReportsModule,
-    LeavesModule, HolidaysModule, ProjectsModule,
+    LeavesModule, HolidaysModule, ProjectsModule, ChatModule,
   ],
   controllers: [AppController, SearchController],
   providers: [
