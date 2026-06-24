@@ -254,4 +254,151 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Refresh rooms list
     await this.getRooms(client);
   }
+
+  // ── Create Group ──
+  @SubscribeMessage('create_group')
+  async createGroup(@ConnectedSocket() client: Socket, @MessageBody() data: {
+    name: string; description?: string; memberIds: string[];
+  }) {
+    const userId = client.data.userId;
+    if (!data.name?.trim() || !data.memberIds?.length) return;
+
+    // Create room
+    const [room] = await this.dataSource.query(
+      `INSERT INTO tenant_ssipl.chat_rooms (name, type, description, created_by, is_active)
+       VALUES ($1, 'group', $2, $3, true) RETURNING *`,
+      [data.name.trim(), data.description || null, userId]
+    );
+
+    // Add creator as admin
+    await this.dataSource.query(
+      `INSERT INTO tenant_ssipl.chat_room_members (room_id, user_id, role) VALUES ($1, $2, 'admin')`,
+      [room.id, userId]
+    );
+
+    // Add members
+    for (const memberId of data.memberIds) {
+      if (memberId !== userId) {
+        await this.dataSource.query(
+          `INSERT INTO tenant_ssipl.chat_room_members (room_id, user_id, role)
+           VALUES ($1, $2, 'member') ON CONFLICT (room_id, user_id) DO NOTHING`,
+          [room.id, memberId]
+        );
+      }
+    }
+
+    // Notify all members
+    for (const memberId of [...data.memberIds, userId]) {
+      const socketId = this.onlineUsers.get(memberId);
+      if (socketId) {
+        const memberSocket = this.server.sockets.sockets.get(socketId) as any;
+        if (memberSocket) await this.getRooms(memberSocket);
+      }
+    }
+
+    client.emit('group_created', room);
+    await this.getRooms(client);
+  }
+
+  // ── Get group members ──
+  @SubscribeMessage('get_group_members')
+  async getGroupMembers(@ConnectedSocket() client: Socket, @MessageBody() roomId: string) {
+    const members = await this.dataSource.query(`
+      SELECT u.id, u.first_name, u.last_name, u.email, u.avatar,
+             crm.role, crm.unread_count
+      FROM tenant_ssipl.chat_room_members crm
+      JOIN tenant_ssipl.users u ON u.id::text = crm.user_id::text
+      WHERE crm.room_id = $1 AND u.deleted_at IS NULL
+      ORDER BY crm.role DESC, u.first_name ASC
+    `, [roomId]);
+    client.emit('group_members', { roomId, members });
+  }
+
+  // ── Add member to group ──
+  @SubscribeMessage('add_group_member')
+  async addGroupMember(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string; userId: string }) {
+    const requesterId = client.data.userId;
+    // Check if requester is admin
+    const [requester] = await this.dataSource.query(
+      `SELECT role FROM tenant_ssipl.chat_room_members WHERE room_id = $1 AND user_id::text = $2`,
+      [data.roomId, requesterId]
+    );
+    if (!requester || requester.role !== 'admin') {
+      client.emit('error', { message: 'Only admins can add members' });
+      return;
+    }
+    await this.dataSource.query(
+      `INSERT INTO tenant_ssipl.chat_room_members (room_id, user_id, role)
+       VALUES ($1, $2, 'member') ON CONFLICT (room_id, user_id) DO NOTHING`,
+      [data.roomId, data.userId]
+    );
+    // Notify new member
+    const socketId = this.onlineUsers.get(data.userId);
+    if (socketId) {
+      const memberSocket = this.server.sockets.sockets.get(socketId) as any;
+      if (memberSocket) await this.getRooms(memberSocket);
+    }
+    await this.getGroupMembers(client, data.roomId);
+    this.server.to(data.roomId).emit('member_added', { roomId: data.roomId, userId: data.userId });
+  }
+
+  // ── Remove member from group ──
+  @SubscribeMessage('remove_group_member')
+  async removeGroupMember(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string; userId: string }) {
+    const requesterId = client.data.userId;
+    const [requester] = await this.dataSource.query(
+      `SELECT role FROM tenant_ssipl.chat_room_members WHERE room_id = $1 AND user_id::text = $2`,
+      [data.roomId, requesterId]
+    );
+    if (!requester || requester.role !== 'admin') {
+      client.emit('error', { message: 'Only admins can remove members' });
+      return;
+    }
+    await this.dataSource.query(
+      `DELETE FROM tenant_ssipl.chat_room_members WHERE room_id = $1 AND user_id::text = $2`,
+      [data.roomId, data.userId]
+    );
+    this.server.to(data.roomId).emit('member_removed', { roomId: data.roomId, userId: data.userId });
+    await this.getGroupMembers(client, data.roomId);
+  }
+
+  // ── Leave group ──
+  @SubscribeMessage('leave_group')
+  async leaveGroup(@ConnectedSocket() client: Socket, @MessageBody() roomId: string) {
+    const userId = client.data.userId;
+    await this.dataSource.query(
+      `DELETE FROM tenant_ssipl.chat_room_members WHERE room_id = $1 AND user_id::text = $2`,
+      [roomId, userId]
+    );
+    client.leave(roomId);
+    this.server.to(roomId).emit('member_removed', { roomId, userId });
+    await this.getRooms(client);
+  }
+
+  // ── Update group info ──
+  @SubscribeMessage('update_group')
+  async updateGroup(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string; name?: string; description?: string }) {
+    const userId = client.data.userId;
+    const [requester] = await this.dataSource.query(
+      `SELECT role FROM tenant_ssipl.chat_room_members WHERE room_id = $1 AND user_id::text = $2`,
+      [data.roomId, userId]
+    );
+    if (!requester || requester.role !== 'admin') {
+      client.emit('error', { message: 'Only admins can update group' });
+      return;
+    }
+    const sets: string[] = [];
+    const vals: any[]   = [];
+    let idx = 1;
+    if (data.name)        { sets.push(`name = $${idx++}`);        vals.push(data.name); }
+    if (data.description !== undefined) { sets.push(`description = $${idx++}`); vals.push(data.description); }
+    if (!sets.length) return;
+    vals.push(data.roomId);
+    await this.dataSource.query(
+      `UPDATE tenant_ssipl.chat_rooms SET ${sets.join(', ')} WHERE id = $${idx}`,
+      vals
+    );
+    this.server.to(data.roomId).emit('group_updated', { roomId: data.roomId, name: data.name, description: data.description });
+    await this.getRooms(client);
+  }
 }
