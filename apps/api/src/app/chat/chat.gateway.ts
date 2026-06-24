@@ -63,7 +63,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         ou.avatar AS other_avatar,
         COALESCE(crm_me.unread_count, 0) AS unread_count
       FROM tenant_ssipl.chat_rooms r
-      LEFT JOIN tenant_ssipl.chat_room_members crm ON crm.room_id = r.id AND crm.user_id != $1
+      LEFT JOIN tenant_ssipl.chat_room_members crm ON crm.room_id = r.id AND crm.user_id::text != $1
       LEFT JOIN tenant_ssipl.users ou ON ou.id::text = crm.user_id::text AND r.type = 'direct'
       LEFT JOIN tenant_ssipl.chat_room_members crm_me ON crm_me.room_id = r.id AND crm_me.user_id::text = $1
       WHERE r.is_active = true
