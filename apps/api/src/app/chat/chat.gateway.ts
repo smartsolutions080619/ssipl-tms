@@ -1,4 +1,4 @@
-
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   WebSocketGateway, WebSocketServer, SubscribeMessage,
   OnGatewayConnection, OnGatewayDisconnect, MessageBody, ConnectedSocket,
@@ -56,18 +56,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         (SELECT content FROM tenant_ssipl.chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) AS last_message,
         (SELECT created_at FROM tenant_ssipl.chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
         (SELECT COUNT(*)::int FROM tenant_ssipl.chat_messages WHERE room_id = r.id) AS message_count,
-        -- For DMs: get the other user's info
         ou.id AS other_user_id,
         ou.first_name AS other_first_name,
         ou.last_name AS other_last_name,
         ou.email AS other_email,
-        ou.avatar AS other_avatar
+        ou.avatar AS other_avatar,
+        COALESCE(crm_me.unread_count, 0) AS unread_count
       FROM tenant_ssipl.chat_rooms r
       LEFT JOIN tenant_ssipl.chat_room_members crm ON crm.room_id = r.id AND crm.user_id != $1
       LEFT JOIN tenant_ssipl.users ou ON ou.id::text = crm.user_id::text AND r.type = 'direct'
+      LEFT JOIN tenant_ssipl.chat_room_members crm_me ON crm_me.room_id = r.id AND crm_me.user_id::text = $1
       WHERE r.is_active = true
         AND (r.type = 'channel' OR r.id IN (
-          SELECT room_id FROM tenant_ssipl.chat_room_members WHERE user_id = $1
+          SELECT room_id FROM tenant_ssipl.chat_room_members WHERE user_id::text = $1
         ))
       ORDER BY last_message_at DESC NULLS LAST, r.created_at ASC
     `, [userId]);
@@ -78,6 +79,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('join_room')
   async joinRoom(@ConnectedSocket() client: Socket, @MessageBody() roomId: string) {
     client.join(roomId);
+    // Reset unread count
+    await this.dataSource.query(`
+      UPDATE tenant_ssipl.chat_room_members
+      SET unread_count = 0, last_read_at = NOW()
+      WHERE room_id = $1 AND user_id::text = $2
+    `, [roomId, client.data.userId]);
+
+    // Emit reset to client
+    client.emit('unread_update', { roomId, unreadCount: 0 });
+
     // Load last 50 messages
     const messages = await this.dataSource.query(`
       SELECT m.*, u.first_name, u.last_name, u.email,
@@ -111,16 +122,51 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       RETURNING *
     `, [data.roomId, userId, data.content.trim(), data.type || 'text', data.fileUrl || null, data.fileName || null]);
 
-    // Get user info
+    // Increment unread for all other members
+    await this.dataSource.query(`
+      UPDATE tenant_ssipl.chat_room_members
+      SET unread_count = unread_count + 1
+      WHERE room_id = $1 AND user_id::text != $2
+    `, [data.roomId, userId]);
+
+    // For channels — ensure all users have a member record
+    await this.dataSource.query(`
+      INSERT INTO tenant_ssipl.chat_room_members (room_id, user_id, unread_count)
+      SELECT $1, u.id, 1
+      FROM tenant_ssipl.users u
+      WHERE u.is_active = true AND u.deleted_at IS NULL
+        AND u.id::text != $2
+        AND NOT EXISTS (
+          SELECT 1 FROM tenant_ssipl.chat_room_members
+          WHERE room_id = $1 AND user_id = u.id
+        )
+        AND EXISTS (SELECT 1 FROM tenant_ssipl.chat_rooms WHERE id = $1 AND type = 'channel')
+      ON CONFLICT (room_id, user_id) DO NOTHING
+    `, [data.roomId, userId]);
+
     const [user] = await this.dataSource.query(
       `SELECT first_name, last_name, email, avatar FROM tenant_ssipl.users WHERE id = $1`,
       [userId]
     );
 
     const fullMsg = { ...msg, first_name: user.first_name, last_name: user.last_name, email: user.email, avatar: user.avatar };
-
-    // Broadcast to room
     this.server.to(data.roomId).emit('new_message', fullMsg);
+
+    // Emit updated unread counts to each user
+    const members = await this.dataSource.query(`
+      SELECT user_id, unread_count FROM tenant_ssipl.chat_room_members
+      WHERE room_id = $1 AND user_id::text != $2
+    `, [data.roomId, userId]);
+
+    members.forEach((m: any) => {
+      const socketId = this.onlineUsers.get(m.user_id);
+      if (socketId) {
+        this.server.to(socketId).emit('unread_update', {
+          roomId: data.roomId,
+          unreadCount: m.unread_count,
+        });
+      }
+    });
   }
 
   // ── Typing indicator ──
@@ -138,12 +184,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('edit_message')
   async editMessage(@ConnectedSocket() client: Socket, @MessageBody() data: { messageId: string; content: string }) {
     const userId = client.data.userId;
-    const [msg] = await this.dataSource.query(
-      `UPDATE tenant_ssipl.chat_messages SET content = $1, is_edited = true, updated_at = NOW()
-       WHERE id = $2 AND user_id = $3 RETURNING *`,
+    const result = await this.dataSource.query(
+      `UPDATE tenant_ssipl.chat_messages 
+       SET content = $1, is_edited = true, updated_at = NOW()
+       WHERE id = $2 AND user_id = $3 
+       RETURNING *`,
       [data.content, data.messageId, userId]
     );
-    if (msg) this.server.to(msg.room_id).emit('message_edited', msg);
+    if (result.length > 0) {
+      const msg = result[0];
+      // Broadcast to entire room
+      this.server.to(msg.room_id).emit('message_edited', msg);
+    }
   }
 
   // ── Delete message ──
