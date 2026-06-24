@@ -291,8 +291,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     for (const memberId of [...data.memberIds, userId]) {
       const socketId = this.onlineUsers.get(memberId);
       if (socketId) {
-        const memberSocket = this.server.sockets.sockets.get(socketId) as any;
-        if (memberSocket) await this.getRooms(memberSocket);
+        this.server.to(socketId).emit('refresh_rooms');
       }
     }
 
@@ -335,8 +334,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Notify new member
     const socketId = this.onlineUsers.get(data.userId);
     if (socketId) {
-      const memberSocket = this.server.sockets.sockets.get(socketId) as any;
-      if (memberSocket) await this.getRooms(memberSocket);
+      this.server.to(socketId).emit('refresh_rooms');
     }
     await this.getGroupMembers(client, data.roomId);
     this.server.to(data.roomId).emit('member_added', { roomId: data.roomId, userId: data.userId });
@@ -399,6 +397,25 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       vals
     );
     this.server.to(data.roomId).emit('group_updated', { roomId: data.roomId, name: data.name, description: data.description });
+    await this.getRooms(client);
+  }
+
+  // ── Delete Group ──
+  @SubscribeMessage('delete_group')
+  async deleteGroup(@ConnectedSocket() client: Socket, @MessageBody() roomId: string) {
+    const userId = client.data.userId;
+    const [requester] = await this.dataSource.query(
+      `SELECT role FROM tenant_ssipl.chat_room_members WHERE room_id = $1 AND user_id::text = $2`,
+      [roomId, userId]
+    );
+    if (!requester || requester.role !== 'admin') {
+      client.emit('error', { message: 'Only admins can delete group' });
+      return;
+    }
+    this.server.to(roomId).emit('group_deleted', { roomId });
+    await this.dataSource.query(`DELETE FROM tenant_ssipl.chat_messages WHERE room_id = $1`, [roomId]);
+    await this.dataSource.query(`DELETE FROM tenant_ssipl.chat_room_members WHERE room_id = $1`, [roomId]);
+    await this.dataSource.query(`DELETE FROM tenant_ssipl.chat_rooms WHERE id = $1`, [roomId]);
     await this.getRooms(client);
   }
 }
