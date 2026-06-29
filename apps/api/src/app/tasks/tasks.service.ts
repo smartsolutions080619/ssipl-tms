@@ -54,18 +54,32 @@ export class TasksService {
       .addSelect('reporter.last_name',  'reporter_last_name')
       .where('task.deleted_at IS NULL');
 
-    // ── Role-based visibility ──
     if (!currentUser) return [];
-    const role = currentUser.role.toLowerCase();
 
-    if (role === 'admin') {
-      // Admin sees ALL tasks — no filter
-    } else if (role === 'manager' || role === 'team lead') {
-      // Manager sees: tasks assigned to them + tasks of users in their department
+    // ── Fetch this user's role permissions from DB dynamically ──
+    const roleResult = await this.taskRepo.query(
+      `SELECT r.permissions FROM tenant_ssipl.roles r
+       INNER JOIN tenant_ssipl.users u ON u.role_id = r.id
+       WHERE u.id = $1 LIMIT 1`,
+      [currentUser.userId]
+    );
+
+    const permissions: string[] = roleResult?.[0]?.permissions || [];
+    const canViewAll = permissions.includes('task:view_all');
+    const roleLower  = currentUser.role?.toLowerCase() || '';
+
+    if (canViewAll || roleLower === 'admin') {
+      // ── Can see ALL tasks ──
+    } else if (
+      roleLower === 'manager' ||
+      roleLower === 'team lead' ||
+      roleLower === 'team_lead'
+    ) {
+      // ── Can see own dept tasks ──
       const deptUsers = await this.taskRepo.query(
-        `SELECT id FROM users
+        `SELECT id FROM tenant_ssipl.users
          WHERE department_id = (
-           SELECT department_id FROM users WHERE id = $1
+           SELECT department_id FROM tenant_ssipl.users WHERE id = $1
          ) AND deleted_at IS NULL`,
         [currentUser.userId]
       );
@@ -83,7 +97,7 @@ export class TasksService {
         );
       }
     } else {
-      // Employee sees ONLY their own assigned/reported tasks
+      // ── Employee — only own tasks ──
       query.andWhere(
         `(task.assignee_id = :userId OR task.reporter_id = :userId)`,
         { userId: currentUser.userId }
@@ -91,10 +105,10 @@ export class TasksService {
     }
 
     // Apply filters
-    if (filters?.status)     query.andWhere('task.status = :status',             { status: filters.status });
-    if (filters?.priority)   query.andWhere('task.priority = :priority',         { priority: filters.priority });
-    if (filters?.type)       query.andWhere('task.type = :type',                 { type: filters.type });
-    if (filters?.assigneeId) query.andWhere('task.assignee_id = :assigneeId',    { assigneeId: filters.assigneeId });
+    if (filters?.status)     query.andWhere('task.status = :status',           { status: filters.status });
+    if (filters?.priority)   query.andWhere('task.priority = :priority',       { priority: filters.priority });
+    if (filters?.type)       query.andWhere('task.type = :type',               { type: filters.type });
+    if (filters?.assigneeId) query.andWhere('task.assignee_id = :assigneeId',  { assigneeId: filters.assigneeId });
     if (filters?.search) {
       query.andWhere(
         '(LOWER(task.title) LIKE :search OR LOWER(task.description) LIKE :search OR task.task_number LIKE :search)',
@@ -164,21 +178,15 @@ export class TasksService {
 
     const saved = await this.taskRepo.save(task);
 
-    // Activity log
     await this.activityLogService.log(
-      reporterId,
-      ActivityAction.TASK_CREATED,
-      saved.id,
+      reporterId, ActivityAction.TASK_CREATED, saved.id,
       undefined,
       { title: saved.title, taskNumber: saved.taskNumber },
     );
 
-    // ── Notify assignee if task created with assignee ──
     if (dto.assigneeId && dto.assigneeId !== reporterId) {
       await this.notificationsService.notifyTaskAssigned(
-        dto.assigneeId,
-        saved.taskNumber,
-        saved.title,
+        dto.assigneeId, saved.taskNumber, saved.title,
       );
     }
 
@@ -199,12 +207,9 @@ export class TasksService {
 
     await this.activityLogService.log(userId, action, id, oldValue, { status: saved.status });
 
-    // ── Notify if assignee changed ──
     if (dto.assigneeId && dto.assigneeId !== oldAssigneeId && dto.assigneeId !== userId) {
       await this.notificationsService.notifyTaskAssigned(
-        dto.assigneeId,
-        saved.taskNumber,
-        saved.title,
+        dto.assigneeId, saved.taskNumber, saved.title,
       );
     }
 
@@ -237,7 +242,6 @@ export class TasksService {
       { assigneeId },
     );
 
-    // Notify new assignee
     if (assigneeId !== userId) {
       await this.notificationsService.notifyTaskAssigned(assigneeId, task.taskNumber, task.title);
     }
@@ -258,7 +262,6 @@ export class TasksService {
   async unassignTask(taskId: string, userId: string) {
     const task = await this.findOne(taskId);
     task.assigneeId = null as unknown as string;
-
     await this.taskRepo.save(task);
 
     await this.activityLogService.log(userId, ActivityAction.TASK_UNASSIGNED, taskId, undefined, undefined);
@@ -290,7 +293,6 @@ export class TasksService {
 
     await this.activityLogService.log(userId, ActivityAction.STATUS_CHANGED, taskId, { status: oldStatus }, { status });
 
-    // ── Notify assignee about status change ──
     if (task.assigneeId && task.assigneeId !== userId) {
       await this.notificationsService.create(
         task.assigneeId,
@@ -329,12 +331,10 @@ export class TasksService {
       { status: task.status, assigneeId: task.assigneeId, reason },
     );
 
-    // Notify new assignee if reassigned
     if (reassignTo && reassignTo !== oldAssignee) {
       await this.notificationsService.notifyTaskAssigned(reassignTo, task.taskNumber, task.title);
     }
 
-    // Notify original assignee that task was sent back
     if (oldAssignee) {
       await this.notificationsService.create(
         oldAssignee,
@@ -385,8 +385,8 @@ export class TasksService {
     await this.findOne(taskId);
     return this.taskRepo.query(
       `SELECT c.*, u.first_name, u.last_name, u.email
-       FROM comments c
-       LEFT JOIN users u ON c.user_id = u.id
+       FROM tenant_ssipl.comments c
+       LEFT JOIN tenant_ssipl.users u ON c.user_id = u.id
        WHERE c.task_id = $1
        ORDER BY c.created_at ASC`,
       [taskId],
@@ -397,7 +397,7 @@ export class TasksService {
     await this.findOne(taskId);
 
     const result = await this.taskRepo.query(
-      `INSERT INTO comments (id, task_id, user_id, content, created_at, updated_at)
+      `INSERT INTO tenant_ssipl.comments (id, task_id, user_id, content, created_at, updated_at)
        VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW())
        RETURNING *`,
       [taskId, userId, content],
@@ -416,8 +416,8 @@ export class TasksService {
     await this.findOne(taskId);
     return this.taskRepo.query(
       `SELECT a.*, u.first_name, u.last_name
-       FROM activity_logs a
-       LEFT JOIN users u ON a.user_id = u.id
+       FROM tenant_ssipl.activity_logs a
+       LEFT JOIN tenant_ssipl.users u ON a.user_id = u.id
        WHERE a.task_id = $1
        ORDER BY a.created_at DESC`,
       [taskId],
