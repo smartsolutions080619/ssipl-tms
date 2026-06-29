@@ -6,7 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-@Entity({ name: 'comments' })
+@Entity({ name: 'comments', schema: 'tenant_ssipl' })
 export class Comment {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -20,7 +20,7 @@ export class Comment {
   @Column({ type: 'text' })
   content!: string;
 
-  @Column({ type: 'jsonb', default: [] })
+  @Column({ type: 'jsonb', default: [], nullable: true })
   mentions!: string[];
 
   @CreateDateColumn({ name: 'created_at' })

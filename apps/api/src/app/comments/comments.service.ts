@@ -1,80 +1,83 @@
 import {
-    Injectable,
-    NotFoundException,
-    ForbiddenException,
-  } from '@nestjs/common';
-  import { InjectRepository } from '@nestjs/typeorm';
-  import { Repository } from 'typeorm';
-  import { Comment } from './comment.entity';
-  import { CreateCommentDto } from './dto/create-comment.dto';
-  import { UpdateCommentDto } from './dto/update-comment.dto';
-  
-  @Injectable()
-  export class CommentsService {
-    constructor(
-      @InjectRepository(Comment)
-      private readonly commentRepo: Repository<Comment>,
-    ) {}
-  
-    async findByTask(taskId: string) {
-      return this.commentRepo.find({
-        where: { taskId },
-        order: { createdAt: 'ASC' },
-      });
-    }
-  
-    async create(taskId: string, userId: string, dto: CreateCommentDto) {
-      // @mentions extract karo content se
-      const mentionPattern = /@\[([^\]]+)\]\(([^)]+)\)/g;
-      const mentions: string[] = dto.mentions || [];
-  
-      // Content se @mentions automatically parse karo
-      let match;
-      while ((match = mentionPattern.exec(dto.content)) !== null) {
-        if (!mentions.includes(match[2])) {
-          mentions.push(match[2]);
-        }
-      }
-  
-      const comment = this.commentRepo.create({
-        taskId,
-        userId,
-        content: dto.content,
-        mentions,
-      });
-  
-      return this.commentRepo.save(comment);
-    }
-  
-    async update(id: string, userId: string, dto: UpdateCommentDto) {
-      const comment = await this.commentRepo.findOne({ where: { id } });
-  
-      if (!comment) {
-        throw new NotFoundException(`Comment ${id} not found`);
-      }
-  
-      // Sirf apna comment update kar sakta hai
-      if (comment.userId !== userId) {
-        throw new ForbiddenException('You can only edit your own comments');
-      }
-  
-      comment.content = dto.content;
-      return this.commentRepo.save(comment);
-    }
-  
-    async remove(id: string, userId: string) {
-      const comment = await this.commentRepo.findOne({ where: { id } });
-  
-      if (!comment) {
-        throw new NotFoundException(`Comment ${id} not found`);
-      }
-  
-      // Sirf apna comment delete kar sakta hai
-      if (comment.userId !== userId) {
-        throw new ForbiddenException('You can only delete your own comments');
-      }
-  
-      await this.commentRepo.remove(comment);
-      return { message: 'Comment deleted successfully' };
-    }
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Comment } from './comment.entity';
+import { CreateCommentDto } from './dto/create-comment.dto';
+import { UpdateCommentDto } from './dto/update-comment.dto';
+
+@Injectable()
+export class CommentsService {
+  constructor(
+    @InjectRepository(Comment)
+    private readonly commentRepo: Repository<Comment>,
+  ) {}
+
+  async findByTask(taskId: string) {
+    // Use raw query to join user info and avoid any ORM column mapping issues
+    return this.commentRepo.query(
+      `SELECT c.id, c.task_id, c.user_id, c.content, c.mentions,
+              c.created_at, c.updated_at,
+              u.first_name, u.last_name, u.email
+       FROM tenant_ssipl.comments c
+       LEFT JOIN tenant_ssipl.users u ON u.id = c.user_id
+       WHERE c.task_id = $1
+       ORDER BY c.created_at ASC`,
+      [taskId],
+    );
   }
+
+  async create(taskId: string, userId: string, dto: CreateCommentDto) {
+    // Parse @mentions from content
+    const mentionPattern = /@\[([^\]]+)\]\(([^)]+)\)/g;
+    const mentions: string[] = dto.mentions || [];
+    let match;
+    while ((match = mentionPattern.exec(dto.content)) !== null) {
+      if (!mentions.includes(match[2])) mentions.push(match[2]);
+    }
+
+    // Use raw query — avoids any ORM column mapping ambiguity
+    const result = await this.commentRepo.query(
+      `INSERT INTO tenant_ssipl.comments
+         (id, task_id, user_id, content, mentions, created_at, updated_at)
+       VALUES
+         (gen_random_uuid(), $1, $2, $3, $4::jsonb, NOW(), NOW())
+       RETURNING *`,
+      [taskId, userId, dto.content, JSON.stringify(mentions)],
+    );
+
+    return result[0];
+  }
+
+  async update(id: string, userId: string, dto: UpdateCommentDto) {
+    const comment = await this.commentRepo.findOne({ where: { id } });
+    if (!comment) throw new NotFoundException(`Comment ${id} not found`);
+    if (comment.userId !== userId) throw new ForbiddenException('You can only edit your own comments');
+
+    const result = await this.commentRepo.query(
+      `UPDATE tenant_ssipl.comments
+       SET content = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [dto.content, id],
+    );
+
+    return result[0];
+  }
+
+  async remove(id: string, userId: string) {
+    const comment = await this.commentRepo.findOne({ where: { id } });
+    if (!comment) throw new NotFoundException(`Comment ${id} not found`);
+    if (comment.userId !== userId) throw new ForbiddenException('You can only delete your own comments');
+
+    await this.commentRepo.query(
+      `DELETE FROM tenant_ssipl.comments WHERE id = $1`,
+      [id],
+    );
+
+    return { message: 'Comment deleted successfully' };
+  }
+}
