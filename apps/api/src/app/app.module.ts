@@ -64,6 +64,10 @@ import { ChatModule } from './chat/chat.module';
         username: configService.get('DATABASE_USER'),
         password: configService.get('DATABASE_PASSWORD'),
         database: configService.get('DATABASE_NAME'),
+        // ── Set tenant_ssipl as the default search path for every
+        //    connection in the pool so TypeORM findOne/find always
+        //    looks in the right schema ──
+        schema: 'tenant_ssipl',
         entities: [
           Tenant, ApiKey, User, Role, Task, Comment, ActivityLog,
           Department, AdminConfig, Notification, Announcement,

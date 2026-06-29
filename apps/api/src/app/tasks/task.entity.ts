@@ -25,7 +25,7 @@ export enum TaskType {
   IMPROVEMENT = 'IMPROVEMENT',
 }
 
-@Entity({ name: 'tasks', schema: 'tenant_ssipl' })
+@Entity({ name: 'tasks' })
 export class Task {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
