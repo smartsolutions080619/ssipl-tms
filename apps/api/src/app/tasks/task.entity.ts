@@ -25,7 +25,7 @@ export enum TaskType {
   IMPROVEMENT = 'IMPROVEMENT',
 }
 
-@Entity({ name: 'tasks' })
+@Entity({ name: 'tasks', schema: 'tenant_ssipl' })
 export class Task {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -57,7 +57,6 @@ export class Task {
   @Column({ name: 'parent_task_id', nullable: true })
   parentTaskId!: string;
 
-  // ── Project link ──
   @Column({ name: 'project_id', nullable: true })
   projectId!: string | null;
 
