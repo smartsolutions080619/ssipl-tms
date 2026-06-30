@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   Injectable, NotFoundException,
-  BadRequestException, ForbiddenException,
+  BadRequestException, 
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
@@ -75,6 +76,15 @@ export class LeavesService {
     };
   }
 
+  // ── Fire-and-forget helper: runs notifications/emails in the
+  //    background without making the caller wait. Any failure here
+  //    is logged but never blocks or fails the main request. ──
+  private notifyInBackground(fn: () => Promise<void>) {
+    fn().catch(err => {
+      console.error('[LeavesService] Background notification failed:', err?.message || err);
+    });
+  }
+
   // ── Submit leave request ──
   async create(userId: string, dto: {
     leaveType: LeaveType; fromDate: string; toDate: string; reason: string;
@@ -117,28 +127,34 @@ export class LeavesService {
     });
     const saved = await this.leaveRepo.save(leave);
 
-    // Notify admins
-    const admins = await this.leaveRepo.query(
-      `SELECT u.id, u.email, u.first_name FROM users u
-       INNER JOIN roles r ON r.id::text = u.role_id::text
-       WHERE LOWER(r.name) = 'admin' AND u.status = 'ACTIVE' AND u.deleted_at IS NULL`
-    );
-
-    const [user] = await this.leaveRepo.query(`SELECT first_name, last_name, email FROM users WHERE id = $1`, [userId]);
-
-    for (const admin of admins) {
-      await this.notifService.create(
-        admin.id,
-        'New Leave Request',
-        `${user.first_name} ${user.last_name} has requested ${totalDays} day(s) of ${dto.leaveType} leave (${dto.fromDate} to ${dto.toDate})`,
-        { type: 'LEAVE_REQUEST', leaveId: saved.id },
+    // ── Notifications + emails run in the background — the request
+    //    returns immediately after the leave row is saved, instead of
+    //    waiting on N admin emails to send over SMTP one by one. ──
+    this.notifyInBackground(async () => {
+      const admins = await this.leaveRepo.query(
+        `SELECT u.id, u.email, u.first_name FROM users u
+         INNER JOIN roles r ON r.id::text = u.role_id::text
+         WHERE LOWER(r.name) = 'admin' AND u.status = 'ACTIVE' AND u.deleted_at IS NULL`
       );
-      await this.mailService.sendLeaveRequest(
-        admin.email, admin.first_name,
-        `${user.first_name} ${user.last_name}`, user.email,
-        dto.leaveType, dto.fromDate, dto.toDate, totalDays, dto.reason,
-      );
-    }
+
+      const [user] = await this.leaveRepo.query(`SELECT first_name, last_name, email FROM users WHERE id = $1`, [userId]);
+
+      // In-app notifications and emails fire concurrently instead of
+      // one-by-one in a sequential loop.
+      await Promise.all(admins.map(async (admin: any) => {
+        await this.notifService.create(
+          admin.id,
+          'New Leave Request',
+          `${user.first_name} ${user.last_name} has requested ${totalDays} day(s) of ${dto.leaveType} leave (${dto.fromDate} to ${dto.toDate})`,
+          { type: 'LEAVE_REQUEST', leaveId: saved.id },
+        );
+        await this.mailService.sendLeaveRequest(
+          admin.email, admin.first_name,
+          `${user.first_name} ${user.last_name}`, user.email,
+          dto.leaveType, dto.fromDate, dto.toDate, totalDays, dto.reason,
+        );
+      }));
+    });
 
     return saved;
   }
@@ -204,14 +220,16 @@ export class LeavesService {
       await this.balanceRepo.save(balance);
     }
 
-    // Notify employee
-    const [user] = await this.leaveRepo.query(`SELECT first_name, email FROM users WHERE id = $1`, [leave.userId]);
-    await this.notifService.create(
-      leave.userId, 'Leave Approved ✅',
-      `Your ${leave.leaveType} leave request for ${leave.totalDays} day(s) has been approved.`,
-      { type: 'LEAVE_APPROVED', leaveId },
-    );
-    await this.mailService.sendLeaveApproved(user.email, user.first_name, leave.leaveType, String(leave.fromDate), String(leave.toDate), leave.totalDays);
+    // ── Notification + email run in the background ──
+    this.notifyInBackground(async () => {
+      const [user] = await this.leaveRepo.query(`SELECT first_name, email FROM users WHERE id = $1`, [leave.userId]);
+      await this.notifService.create(
+        leave.userId, 'Leave Approved ✅',
+        `Your ${leave.leaveType} leave request for ${leave.totalDays} day(s) has been approved.`,
+        { type: 'LEAVE_APPROVED', leaveId },
+      );
+      await this.mailService.sendLeaveApproved(user.email, user.first_name, leave.leaveType, String(leave.fromDate), String(leave.toDate), leave.totalDays);
+    });
 
     return { message: 'Leave approved successfully', leave };
   }
@@ -230,14 +248,16 @@ export class LeavesService {
     leave.rejectionReason = reason;
     await this.leaveRepo.save(leave);
 
-    // Notify employee
-    const [user] = await this.leaveRepo.query(`SELECT first_name, email FROM users WHERE id = $1`, [leave.userId]);
-    await this.notifService.create(
-      leave.userId, 'Leave Rejected ❌',
-      `Your ${leave.leaveType} leave request was rejected. Reason: ${reason}`,
-      { type: 'LEAVE_REJECTED', leaveId },
-    );
-    await this.mailService.sendLeaveRejected(user.email, user.first_name, leave.leaveType, String(leave.fromDate), String(leave.toDate), reason);
+    // ── Notification + email run in the background ──
+    this.notifyInBackground(async () => {
+      const [user] = await this.leaveRepo.query(`SELECT first_name, email FROM users WHERE id = $1`, [leave.userId]);
+      await this.notifService.create(
+        leave.userId, 'Leave Rejected ❌',
+        `Your ${leave.leaveType} leave request was rejected. Reason: ${reason}`,
+        { type: 'LEAVE_REJECTED', leaveId },
+      );
+      await this.mailService.sendLeaveRejected(user.email, user.first_name, leave.leaveType, String(leave.fromDate), String(leave.toDate), reason);
+    });
 
     return { message: 'Leave rejected', leave };
   }
