@@ -18,6 +18,7 @@ type UpdateProjectDto = {
   startDate?: string;
   endDate?: string;
   progress?: number;
+  managerId?: string | null;
 };
 
 @Injectable()
@@ -30,7 +31,7 @@ export class ProjectsService {
     private readonly notifService: NotificationsService,
   ) {}
 
-  // ── Get all projects (with member count + task stats) ──
+  // ── Get all projects (with member count + task stats + manager) ──
   async findAll(userId: string, role: string) {
     const isAdmin = role?.toLowerCase() === 'admin';
 
@@ -39,6 +40,8 @@ export class ProjectsService {
         p.*,
         u.first_name AS creator_first_name,
         u.last_name  AS creator_last_name,
+        mgr.first_name AS manager_first_name,
+        mgr.last_name  AS manager_last_name,
         COUNT(DISTINCT pm.user_id)::int  AS member_count,
         COUNT(DISTINCT t.id)::int        AS total_tasks,
         COUNT(DISTINCT CASE WHEN t.status = 'DONE' THEN t.id END)::int AS completed_tasks,
@@ -46,6 +49,7 @@ export class ProjectsService {
         COUNT(DISTINCT CASE WHEN t.deleted_at IS NULL AND t.due_date < NOW() AND t.status NOT IN ('DONE','CANCELLED') THEN t.id END)::int AS overdue_tasks
       FROM tenant_ssipl.projects p
       LEFT JOIN tenant_ssipl.users u  ON u.id::text = p.created_by::text
+      LEFT JOIN tenant_ssipl.users mgr ON mgr.id::text = p.manager_id::text
       LEFT JOIN tenant_ssipl.project_members pm ON pm.project_id = p.id
       LEFT JOIN tenant_ssipl.tasks t  ON t.project_id::text = p.id::text AND t.deleted_at IS NULL
       WHERE p.deleted_at IS NULL AND p.is_active = true
@@ -56,7 +60,7 @@ export class ProjectsService {
       query += ` AND (p.created_by = '${userId}' OR pm.user_id = '${userId}')`;
     }
 
-    query += ` GROUP BY p.id, u.first_name, u.last_name ORDER BY p.created_at DESC`;
+    query += ` GROUP BY p.id, u.first_name, u.last_name, mgr.first_name, mgr.last_name ORDER BY p.created_at DESC`;
 
     return this.projectRepo.query(query);
   }
@@ -66,6 +70,7 @@ export class ProjectsService {
     const [project] = await this.projectRepo.query(`
       SELECT p.*,
         u.first_name AS creator_first_name, u.last_name AS creator_last_name,
+        mgr.first_name AS manager_first_name, mgr.last_name AS manager_last_name, mgr.email AS manager_email,
         COUNT(DISTINCT t.id)::int AS total_tasks,
         COUNT(DISTINCT CASE WHEN t.status = 'DONE' THEN t.id END)::int AS completed_tasks,
         COUNT(DISTINCT CASE WHEN t.status IN ('TODO') THEN t.id END)::int AS todo_tasks,
@@ -74,9 +79,10 @@ export class ProjectsService {
         COUNT(DISTINCT CASE WHEN t.deleted_at IS NULL AND t.due_date < NOW() AND t.status NOT IN ('DONE','CANCELLED') THEN t.id END)::int AS overdue_tasks
       FROM tenant_ssipl.projects p
       LEFT JOIN tenant_ssipl.users u ON u.id::text = p.created_by::text
+      LEFT JOIN tenant_ssipl.users mgr ON mgr.id::text = p.manager_id::text
       LEFT JOIN tenant_ssipl.tasks t ON t.project_id::text = p.id::text AND t.deleted_at IS NULL
       WHERE p.id = $1 AND p.deleted_at IS NULL
-      GROUP BY p.id, u.first_name, u.last_name
+      GROUP BY p.id, u.first_name, u.last_name, mgr.first_name, mgr.last_name, mgr.email
     `, [id]);
 
     if (!project) throw new NotFoundException('Project not found');
@@ -103,6 +109,7 @@ export class ProjectsService {
     color?: string; icon?: string;
     startDate?: string; endDate?: string;
     memberIds?: string[]; departmentIds?: string[];
+    managerId?: string;
   }, createdBy: string) {
 
     const project = this.projectRepo.create({
@@ -115,6 +122,7 @@ export class ProjectsService {
       icon:        dto.icon      || '🚀',
       startDate:   dto.startDate ? new Date(dto.startDate) : null,
       endDate:     dto.endDate   ? new Date(dto.endDate)   : null,
+      managerId:   dto.managerId || null,
       createdBy,
       isActive: true,
     });
@@ -127,8 +135,19 @@ export class ProjectsService {
       role: ProjectMemberRole.PROJECT_LEAD, addedBy: createdBy,
     }));
 
-    // Add individual members
     const allUserIds = new Set<string>([createdBy]);
+
+    // ── If a manager was chosen and it's different from the creator,
+    //    add them as a member with PROJECT_LEAD role too ──
+    if (dto.managerId && dto.managerId !== createdBy) {
+      allUserIds.add(dto.managerId);
+      await this.memberRepo.save(this.memberRepo.create({
+        projectId: saved.id, userId: dto.managerId,
+        role: ProjectMemberRole.PROJECT_LEAD, addedBy: createdBy,
+      }));
+    }
+
+    // Add individual members
     if (dto.memberIds?.length) {
       for (const uid of dto.memberIds) {
         if (!allUserIds.has(uid)) {
@@ -162,10 +181,13 @@ export class ProjectsService {
     const [creator] = await this.projectRepo.query(`SELECT first_name, last_name FROM tenant_ssipl.users WHERE id = $1`, [createdBy]);
     for (const uid of allUserIds) {
       if (uid !== createdBy) {
+        const isManager = uid === dto.managerId;
         await this.notifService.create(
           uid,
           `Added to project: ${saved.name}`,
-          `${creator.first_name} ${creator.last_name} added you to project "${saved.name}"`,
+          isManager
+            ? `${creator.first_name} ${creator.last_name} assigned you as manager of project "${saved.name}"`
+            : `${creator.first_name} ${creator.last_name} added you to project "${saved.name}"`,
           { type: 'PROJECT_ADDED', projectId: saved.id },
           '/projects',
         );
@@ -190,6 +212,34 @@ export class ProjectsService {
     if (dto.endDate)     project.endDate     = new Date(dto.endDate);
     if (dto.progress !== undefined) project.progress = dto.progress;
     if (dto.projectCode) project.projectCode = dto.projectCode;
+
+    // ── Manager change ──
+    if (dto.managerId !== undefined) {
+      const oldManagerId = project.managerId;
+      project.managerId = dto.managerId || null;
+      const saved = await this.projectRepo.save(project);
+
+      if (dto.managerId && dto.managerId !== oldManagerId) {
+        // Ensure new manager is a project member with PROJECT_LEAD role
+        const existing = await this.memberRepo.findOne({ where: { projectId: id, userId: dto.managerId } });
+        if (existing) {
+          await this.memberRepo.update({ projectId: id, userId: dto.managerId }, { role: ProjectMemberRole.PROJECT_LEAD });
+        } else {
+          await this.memberRepo.save(this.memberRepo.create({
+            projectId: id, userId: dto.managerId,
+            role: ProjectMemberRole.PROJECT_LEAD, addedBy: dto.managerId,
+          }));
+        }
+        await this.notifService.create(
+          dto.managerId,
+          `Assigned as manager: ${project.name}`,
+          `You have been assigned as manager of project "${project.name}"`,
+          { type: 'PROJECT_MANAGER_ASSIGNED', projectId: id },
+          '/projects',
+        );
+      }
+      return saved;
+    }
 
     return this.projectRepo.save(project);
   }
@@ -266,6 +316,11 @@ export class ProjectsService {
 
   // ── Remove member ──
   async removeMember(projectId: string, userId: string) {
+    // If removing the current manager, clear managerId on the project too
+    const project = await this.projectRepo.findOne({ where: { id: projectId } });
+    if (project?.managerId === userId) {
+      await this.projectRepo.update(projectId, { managerId: null });
+    }
     await this.memberRepo.delete({ projectId, userId });
     return { message: 'Member removed' };
   }

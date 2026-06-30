@@ -56,6 +56,10 @@ export class Project {
   @Column({ name: 'progress', type: 'int', default: 0 })
   progress!: number;
 
+  // ── Project Manager — references users.id ──
+  @Column({ name: 'manager_id', nullable: true })
+  managerId!: string | null;
+
   @Column({ name: 'created_by' })
   createdBy!: string;
 
