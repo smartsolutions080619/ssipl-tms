@@ -15,7 +15,6 @@ import { DataSource } from 'typeorm';
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server!: Server;
 
-  // userId → socketId map
   private onlineUsers = new Map<string, string>();
 
   constructor(
@@ -23,7 +22,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
-  // ── Auth on connect ──
   async handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth?.token || client.handshake.headers?.authorization?.split(' ')[1];
@@ -32,7 +30,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.data.userId = payload.sub;
       client.data.user   = payload;
       this.onlineUsers.set(payload.sub, client.id);
-      // Broadcast online users
       this.server.emit('online_users', Array.from(this.onlineUsers.keys()));
       console.log(`Chat connected: ${payload.email}`);
     } catch {
@@ -48,11 +45,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // ── Get rooms ──
+  // FIX: added DISTINCT ON (r.id) and scoped the chat_room_members join
+  // to type='direct' only. Previously every group's row was duplicated
+  // once per member because the join had no type guard, so a 4-member
+  // group showed up 4 times in the sidebar.
   @SubscribeMessage('get_rooms')
   async getRooms(@ConnectedSocket() client: Socket) {
     const userId = client.data.userId;
     const rooms = await this.dataSource.query(`
-      SELECT r.*,
+      SELECT DISTINCT ON (r.id) r.*,
         (SELECT content FROM tenant_ssipl.chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) AS last_message,
         (SELECT created_at FROM tenant_ssipl.chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
         (SELECT COUNT(*)::int FROM tenant_ssipl.chat_messages WHERE room_id = r.id) AS message_count,
@@ -63,14 +64,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         ou.avatar AS other_avatar,
         COALESCE(crm_me.unread_count, 0) AS unread_count
       FROM tenant_ssipl.chat_rooms r
-      LEFT JOIN tenant_ssipl.chat_room_members crm ON crm.room_id = r.id AND crm.user_id::text != $1
+      LEFT JOIN tenant_ssipl.chat_room_members crm
+        ON crm.room_id = r.id AND crm.user_id::text != $1 AND r.type = 'direct'
       LEFT JOIN tenant_ssipl.users ou ON ou.id::text = crm.user_id::text AND r.type = 'direct'
       LEFT JOIN tenant_ssipl.chat_room_members crm_me ON crm_me.room_id = r.id AND crm_me.user_id::text = $1
       WHERE r.is_active = true
         AND (r.type = 'channel' OR r.id IN (
           SELECT room_id FROM tenant_ssipl.chat_room_members WHERE user_id::text = $1
         ))
-      ORDER BY last_message_at DESC NULLS LAST, r.created_at ASC
+      ORDER BY r.id, last_message_at DESC NULLS LAST, r.created_at ASC
     `, [userId]);
     client.emit('rooms', rooms);
   }
@@ -79,17 +81,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('join_room')
   async joinRoom(@ConnectedSocket() client: Socket, @MessageBody() roomId: string) {
     client.join(roomId);
-    // Reset unread count
     await this.dataSource.query(`
       UPDATE tenant_ssipl.chat_room_members
       SET unread_count = 0, last_read_at = NOW()
       WHERE room_id = $1 AND user_id::text = $2
     `, [roomId, client.data.userId]);
 
-    // Emit reset to client
     client.emit('unread_update', { roomId, unreadCount: 0 });
 
-    // Load last 50 messages
     const messages = await this.dataSource.query(`
       SELECT m.*, u.first_name, u.last_name, u.email,
              (SELECT avatar FROM tenant_ssipl.users WHERE id = m.user_id) AS avatar
@@ -122,14 +121,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       RETURNING *
     `, [data.roomId, userId, data.content.trim(), data.type || 'text', data.fileUrl || null, data.fileName || null]);
 
-    // Increment unread for all other members
     await this.dataSource.query(`
       UPDATE tenant_ssipl.chat_room_members
       SET unread_count = unread_count + 1
       WHERE room_id = $1 AND user_id::text != $2
     `, [data.roomId, userId]);
 
-    // For channels — ensure all users have a member record
     await this.dataSource.query(`
       INSERT INTO tenant_ssipl.chat_room_members (room_id, user_id, unread_count)
       SELECT $1, u.id, 1
@@ -152,7 +149,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const fullMsg = { ...msg, first_name: user.first_name, last_name: user.last_name, email: user.email, avatar: user.avatar };
     this.server.to(data.roomId).emit('new_message', fullMsg);
 
-    // Emit updated unread counts to each user
     const members = await this.dataSource.query(`
       SELECT user_id, unread_count FROM tenant_ssipl.chat_room_members
       WHERE room_id = $1 AND user_id::text != $2
@@ -193,7 +189,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     );
     if (result.length > 0) {
       const msg = result[0];
-      // Broadcast to entire room
       this.server.to(msg.room_id).emit('message_edited', msg);
     }
   }
@@ -235,7 +230,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       room = newRoom;
     }
 
-    // Get other user info
     const [otherUser] = await this.dataSource.query(
       `SELECT id, first_name, last_name, email, avatar FROM tenant_ssipl.users WHERE id = $1`,
       [targetUserId]
@@ -251,7 +245,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     };
 
     client.emit('dm_created', roomWithUser);
-    // Refresh rooms list
     await this.getRooms(client);
   }
 
@@ -263,20 +256,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data.userId;
     if (!data.name?.trim() || !data.memberIds?.length) return;
 
-    // Create room
     const [room] = await this.dataSource.query(
       `INSERT INTO tenant_ssipl.chat_rooms (name, type, description, created_by, is_active)
        VALUES ($1, 'group', $2, $3, true) RETURNING *`,
       [data.name.trim(), data.description || null, userId]
     );
 
-    // Add creator as admin
     await this.dataSource.query(
       `INSERT INTO tenant_ssipl.chat_room_members (room_id, user_id, role) VALUES ($1, $2, 'admin')`,
       [room.id, userId]
     );
 
-    // Add members
     for (const memberId of data.memberIds) {
       if (memberId !== userId) {
         await this.dataSource.query(
@@ -287,7 +277,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }
 
-    // Notify all members
     for (const memberId of [...data.memberIds, userId]) {
       const socketId = this.onlineUsers.get(memberId);
       if (socketId) {
@@ -317,7 +306,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('add_group_member')
   async addGroupMember(@ConnectedSocket() client: Socket, @MessageBody() data: { roomId: string; userId: string }) {
     const requesterId = client.data.userId;
-    // Check if requester is admin
     const [requester] = await this.dataSource.query(
       `SELECT role FROM tenant_ssipl.chat_room_members WHERE room_id = $1 AND user_id::text = $2`,
       [data.roomId, requesterId]
@@ -331,7 +319,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
        VALUES ($1, $2, 'member') ON CONFLICT (room_id, user_id) DO NOTHING`,
       [data.roomId, data.userId]
     );
-    // Notify new member
     const socketId = this.onlineUsers.get(data.userId);
     if (socketId) {
       this.server.to(socketId).emit('refresh_rooms');
