@@ -17,7 +17,6 @@ export class CommentsService {
   ) {}
 
   async findByTask(taskId: string) {
-    // Use raw query to join user info and avoid any ORM column mapping issues
     return this.commentRepo.query(
       `SELECT c.id, c.task_id, c.user_id, c.content, c.mentions,
               c.created_at, c.updated_at,
@@ -30,8 +29,20 @@ export class CommentsService {
     );
   }
 
+  async findByProject(projectId: string) {
+    return this.commentRepo.query(
+      `SELECT c.id, c.project_id, c.user_id, c.content, c.mentions,
+              c.created_at, c.updated_at,
+              u.first_name, u.last_name, u.email
+       FROM tenant_ssipl.comments c
+       LEFT JOIN tenant_ssipl.users u ON u.id = c.user_id
+       WHERE c.project_id = $1
+       ORDER BY c.created_at ASC`,
+      [projectId],
+    );
+  }
+
   async create(taskId: string, userId: string, dto: CreateCommentDto) {
-    // Parse @mentions from content
     const mentionPattern = /@\[([^\]]+)\]\(([^)]+)\)/g;
     const mentions: string[] = dto.mentions || [];
     let match;
@@ -39,7 +50,6 @@ export class CommentsService {
       if (!mentions.includes(match[2])) mentions.push(match[2]);
     }
 
-    // Use raw query — avoids any ORM column mapping ambiguity
     const result = await this.commentRepo.query(
       `INSERT INTO tenant_ssipl.comments
          (id, task_id, user_id, content, mentions, created_at, updated_at)
@@ -47,6 +57,26 @@ export class CommentsService {
          (gen_random_uuid(), $1, $2, $3, $4::jsonb, NOW(), NOW())
        RETURNING *`,
       [taskId, userId, dto.content, JSON.stringify(mentions)],
+    );
+
+    return result[0];
+  }
+
+  async createForProject(projectId: string, userId: string, dto: CreateCommentDto) {
+    const mentionPattern = /@\[([^\]]+)\]\(([^)]+)\)/g;
+    const mentions: string[] = dto.mentions || [];
+    let match;
+    while ((match = mentionPattern.exec(dto.content)) !== null) {
+      if (!mentions.includes(match[2])) mentions.push(match[2]);
+    }
+
+    const result = await this.commentRepo.query(
+      `INSERT INTO tenant_ssipl.comments
+         (id, project_id, user_id, content, mentions, created_at, updated_at)
+       VALUES
+         (gen_random_uuid(), $1, $2, $3, $4::jsonb, NOW(), NOW())
+       RETURNING *`,
+      [projectId, userId, dto.content, JSON.stringify(mentions)],
     );
 
     return result[0];
