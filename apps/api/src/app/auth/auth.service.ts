@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   Injectable,
   UnauthorizedException,
@@ -38,14 +39,22 @@ export class AuthService {
     });
     await this.userRepo.save(user);
 
-    const admins = await this.userRepo.query(
+    // ── Fire-and-forget: respond immediately, send emails in background.
+    //    No await — admin emails never block the registration response. ──
+    this.userRepo.query(
       `SELECT u.email, u.first_name FROM tenant_ssipl.users u
        INNER JOIN tenant_ssipl.roles r ON r.id::text = u.role_id::text
        WHERE LOWER(r.name) = 'admin' AND u.status = 'ACTIVE' AND u.deleted_at IS NULL`
+    ).then((admins: any[]) =>
+      Promise.all(admins.map(admin =>
+        this.mailService.sendNewUserRequest(
+          admin.email, admin.first_name,
+          `${user.firstName} ${user.lastName}`, user.email,
+        )
+      ))
+    ).catch(err =>
+      console.error('[AuthService] Admin notification failed:', err?.message)
     );
-    for (const admin of admins) {
-      await this.mailService.sendNewUserRequest(admin.email, admin.first_name, `${user.firstName} ${user.lastName}`, user.email);
-    }
 
     return {
       message: 'Registration successful. Your account is pending admin approval.',
@@ -54,7 +63,6 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, tenantId: string) {
-    // Use raw query with explicit schema to avoid search_path issues
     const users = await this.userRepo.query(
       `SELECT * FROM tenant_ssipl.users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
       [dto.email]
@@ -121,7 +129,11 @@ export class AuthService {
       [resetTokenHash, new Date(Date.now() + 3600000), email]
     );
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
-    await this.mailService.sendForgotPassword(user.email, user.firstName, resetUrl);
+
+    // ── Also non-blocking — forgot password email doesn't need to block ──
+    this.mailService.sendForgotPassword(user.email, user.firstName, resetUrl)
+      .catch(err => console.error('[AuthService] Forgot password email failed:', err?.message));
+
     return { message: 'If this email exists, a reset link has been sent' };
   }
 
