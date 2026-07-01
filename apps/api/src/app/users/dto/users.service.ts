@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   Injectable,
   NotFoundException,
@@ -20,6 +21,11 @@ export class UsersService {
     private readonly mailService: MailService,
   ) {}
 
+  // ── Fire-and-forget helper ──
+  private bgMail(fn: () => Promise<any>) {
+    fn().catch(err => console.error('[UsersService] Mail failed:', err?.message));
+  }
+
   async findAll() {
     return this.userRepo.find({
       where: { isActive: true },
@@ -30,7 +36,6 @@ export class UsersService {
     });
   }
 
-  // ── Pending users for admin approval ──
   async findPending() {
     return this.userRepo.find({
       where: { status: UserStatus.PENDING },
@@ -61,21 +66,20 @@ export class UsersService {
     if (user.status !== UserStatus.PENDING)
       throw new BadRequestException(`User is not in PENDING status`);
 
-    user.status       = UserStatus.ACTIVE;
-    user.isActive     = true;
-    user.roleId       = roleId;
+    user.status   = UserStatus.ACTIVE;
+    user.isActive = true;
+    user.roleId   = roleId;
     if (departmentId) user.departmentId = departmentId;
-
     await this.userRepo.save(user);
 
-    // Get role name for email
-    const roleResult = await this.userRepo.query(
-      `SELECT name FROM roles WHERE id = $1`, [roleId]
-    );
-    const roleName = roleResult[0]?.name || 'User';
-
-    // Send approval email
-    await this.mailService.sendAccountApproved(user.email, user.firstName, roleName);
+    // ── Email in background — don't block the approve response ──
+    this.bgMail(async () => {
+      const roleResult = await this.userRepo.query(
+        `SELECT name FROM roles WHERE id = $1`, [roleId]
+      );
+      const roleName = roleResult[0]?.name || 'User';
+      await this.mailService.sendAccountApproved(user.email, user.firstName, roleName);
+    });
 
     return {
       message: `User ${user.email} approved successfully`,
@@ -94,8 +98,8 @@ export class UsersService {
     user.isActive = false;
     await this.userRepo.save(user);
 
-    // Send rejection email
-    await this.mailService.sendAccountRejected(user.email, user.firstName);
+    // ── Email in background ──
+    this.bgMail(() => this.mailService.sendAccountRejected(user.email, user.firstName));
 
     return { message: `User ${user.email} rejected` };
   }
@@ -109,7 +113,7 @@ export class UsersService {
       email: dto.email, passwordHash,
       firstName: dto.firstName, lastName: dto.lastName,
       roleId: dto.roleId, departmentId: dto.departmentId,
-      status: UserStatus.ACTIVE,  // Admin-created users are immediately active
+      status: UserStatus.ACTIVE,
       isActive: true,
     });
     await this.userRepo.save(user);
@@ -142,8 +146,6 @@ export class UsersService {
     return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName };
   }
 
-  // ── Add these methods to existing users.service.ts ──
-
   async getMyProfile(userId: string) {
     const [user] = await this.userRepo.query(
       `SELECT u.id, u.email, u.first_name AS "firstName", u.last_name AS "lastName",
@@ -158,7 +160,6 @@ export class UsersService {
 
   async updateMyProfile(userId: string, dto: { firstName?: string; lastName?: string; avatar?: string }) {
     const sets: string[] = [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const vals: any[]    = [];
     let idx = 1;
     if (dto.firstName !== undefined) { sets.push(`first_name = $${idx++}`); vals.push(dto.firstName); }
