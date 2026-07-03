@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   Controller, Get, Post, Put, Delete,
   Param, Body, Query, UseGuards,
@@ -22,6 +23,13 @@ export class HolidaysController {
   @ApiOperation({ summary: 'Get all holidays (optionally by year)' })
   async findAll(@Query('year') year?: string) {
     return this.holidaysService.findAll(year ? parseInt(year) : undefined);
+  }
+
+  // ── New endpoint: holidays to show in announcement widget ──
+  @Get('announcements')
+  @ApiOperation({ summary: 'Get upcoming holidays for announcement widget (2 days before + day of)' })
+  async getAnnouncements() {
+    return this.holidaysService.getUpcomingAnnouncements();
   }
 
   @Get('range')

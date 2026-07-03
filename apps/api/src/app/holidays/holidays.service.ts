@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -37,6 +38,38 @@ export class HolidaysService {
       .andWhere('h.date BETWEEN :from AND :to', { from, to })
       .orderBy('h.date', 'ASC')
       .getMany();
+  }
+
+  // ── Return holidays that should show in announcement widget:
+  //    - from 2 days before the holiday date
+  //    - up to and including the holiday date itself
+  //    - hidden the day after (already passed)
+  async getUpcomingAnnouncements() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Show window: today → today + 2 days
+    const from = today.toISOString().split('T')[0];
+
+    const until = new Date(today);
+    until.setDate(until.getDate() + 2);
+    const to = until.toISOString().split('T')[0];
+
+    const holidays = await this.holidayRepo
+      .createQueryBuilder('h')
+      .where('h.isActive = :active', { active: true })
+      .andWhere('h.date BETWEEN :from AND :to', { from, to })
+      .orderBy('h.date', 'ASC')
+      .getMany();
+
+    // Add how many days until each holiday
+    return holidays.map(h => {
+      const hDate = new Date(h.date);
+      hDate.setHours(0, 0, 0, 0);
+      const diffMs   = hDate.getTime() - today.getTime();
+      const daysUntil = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      return { ...h, daysUntil };
+    });
   }
 
   async create(dto: {

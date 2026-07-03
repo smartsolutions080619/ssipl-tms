@@ -76,7 +76,10 @@ export class TasksService {
       roleLower === 'team lead' ||
       roleLower === 'team_lead'
     ) {
-      // ── Can see own dept tasks ──
+      // ── Manager sees:
+      //    1. Own dept members' tasks (as before)
+      //    2. Tasks assigned TO any of own dept members — even if task is from another dept
+      //    3. Tasks where own dept member assigned someone from another dept
       const deptUsers = await this.taskRepo.query(
         `SELECT id FROM tenant_ssipl.users
          WHERE department_id = (
@@ -87,8 +90,17 @@ export class TasksService {
       const deptUserIds = deptUsers.map((u: { id: string }) => u.id);
 
       if (deptUserIds.length > 0) {
+        // Show tasks where:
+        // - assignee is in this dept, OR
+        // - reporter is in this dept, OR
+        // - manager themselves is assignee/reporter
+        // This covers cross-dept scenario: if emp from another dept
+        // is assigned to a task by someone in this dept, manager sees it
         query.andWhere(
-          `(task.assignee_id = :userId OR task.reporter_id = :userId OR task.assignee_id IN (:...deptUserIds))`,
+          `(task.assignee_id = :userId
+            OR task.reporter_id = :userId
+            OR task.assignee_id   IN (:...deptUserIds)
+            OR task.reporter_id   IN (:...deptUserIds))`,
           { userId: currentUser.userId, deptUserIds }
         );
       } else {
