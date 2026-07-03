@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   Injectable,
@@ -500,5 +501,45 @@ export class TasksService {
     if (parent?.parentTaskId) {
       await this.checkSubTaskDepth(parent.parentTaskId, currentDepth + 1);
     }
+  }
+
+  // ── Extend task deadline ──
+  async extendDeadline(taskId: string, newDueDate: string, userId: string) {
+    const task = await this.findOne(taskId);
+
+    if (!task.dueDate) throw new BadRequestException('Task has no due date to extend');
+
+    const originalDueDate = (task as any).originalDueDate || task.dueDate;
+
+    await this.taskRepo.query(
+      `UPDATE tenant_ssipl.tasks
+       SET due_date          = $1,
+           extension_count   = COALESCE(extension_count, 0) + 1,
+           last_extended_at  = NOW(),
+           original_due_date = COALESCE(original_due_date, $2),
+           updated_at        = NOW()
+       WHERE id = $3`,
+      [newDueDate, originalDueDate, taskId]
+    );
+
+    await this.activityLogService.log(
+      userId, ActivityAction.TASK_UPDATED, taskId,
+      { dueDate: task.dueDate },
+      { dueDate: newDueDate, action: 'DEADLINE_EXTENDED', extensionCount: ((task as any).extensionCount || 0) + 1 },
+    );
+
+    if (task.assigneeId && task.assigneeId !== userId) {
+      await this.notificationsService.create(
+        task.assigneeId,
+        `⏰ Task deadline extended: ${task.taskNumber}`,
+        `Deadline for "${task.title}" extended to ${new Date(newDueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        { type: 'DEADLINE_EXTENDED', taskId },
+      );
+    }
+
+    return {
+      message: 'Deadline extended successfully',
+      task: { id: taskId, newDueDate, extensionCount: ((task as any).extensionCount || 0) + 1 },
+    };
   }
 }

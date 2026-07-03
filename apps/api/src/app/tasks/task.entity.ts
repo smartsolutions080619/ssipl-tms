@@ -72,6 +72,16 @@ export class Task {
   @Column({ name: 'due_date', nullable: true })
   dueDate!: Date | null;
 
+  // ── Extension tracking ──
+  @Column({ name: 'extension_count', type: 'int', default: 0 })
+  extensionCount!: number;
+
+  @Column({ name: 'last_extended_at', nullable: true })
+  lastExtendedAt!: Date | null;
+
+  @Column({ name: 'original_due_date', nullable: true })
+  originalDueDate!: Date | null;
+
   // ── Recurrence ──
   @Column({ name: 'is_recurring', default: false })
   isRecurring!: boolean;
