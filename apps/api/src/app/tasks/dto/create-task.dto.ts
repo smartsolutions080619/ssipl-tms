@@ -1,12 +1,17 @@
 import {
-  IsString,
-  IsOptional,
-  IsEnum,
-  IsUUID,
-  IsDateString,
+  IsString, IsOptional, IsEnum, IsUUID, IsDateString, IsBoolean,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { TaskPriority, TaskType } from '../task.entity';
+
+export enum RecurrenceFrequency {
+  DAILY       = 'DAILY',
+  WEEKLY      = 'WEEKLY',
+  MONTHLY     = 'MONTHLY',
+  QUARTERLY   = 'QUARTERLY',
+  HALF_YEARLY = 'HALF_YEARLY',
+  YEARLY      = 'YEARLY',
+}
 
 export class CreateTaskDto {
   @ApiProperty()
@@ -43,8 +48,24 @@ export class CreateTaskDto {
   @IsUUID()
   projectId?: string;
 
-  @ApiProperty({ required: false, description: 'ISO date string' })
+  @ApiProperty({ required: false })
   @IsOptional()
   @IsDateString()
   dueDate?: string;
+
+  // ── Recurrence fields ──
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  isRecurring?: boolean;
+
+  @ApiProperty({ enum: RecurrenceFrequency, required: false })
+  @IsOptional()
+  @IsEnum(RecurrenceFrequency)
+  recurrenceFrequency?: RecurrenceFrequency;
+
+  @ApiProperty({ required: false, description: 'When recurrence ends (ISO date). Null = forever.' })
+  @IsOptional()
+  @IsDateString()
+  recurrenceEndDate?: string;
 }

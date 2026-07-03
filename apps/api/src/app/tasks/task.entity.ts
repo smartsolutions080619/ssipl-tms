@@ -25,6 +25,15 @@ export enum TaskType {
   IMPROVEMENT = 'IMPROVEMENT',
 }
 
+export enum RecurrenceFrequency {
+  DAILY       = 'DAILY',
+  WEEKLY      = 'WEEKLY',
+  MONTHLY     = 'MONTHLY',
+  QUARTERLY   = 'QUARTERLY',
+  HALF_YEARLY = 'HALF_YEARLY',
+  YEARLY      = 'YEARLY',
+}
+
 @Entity({ name: 'tasks' })
 export class Task {
   @PrimaryGeneratedColumn('uuid')
@@ -62,6 +71,23 @@ export class Task {
 
   @Column({ name: 'due_date', nullable: true })
   dueDate!: Date | null;
+
+  // ── Recurrence ──
+  @Column({ name: 'is_recurring', default: false })
+  isRecurring!: boolean;
+
+  @Column({ name: 'recurrence_frequency', type: 'varchar', nullable: true })
+  recurrenceFrequency!: RecurrenceFrequency | null;
+
+  @Column({ name: 'recurrence_end_date', nullable: true })
+  recurrenceEndDate!: Date | null;
+
+  @Column({ name: 'next_recurrence_date', nullable: true })
+  nextRecurrenceDate!: Date | null;
+
+  // Points back to the original template task
+  @Column({ name: 'recurrence_parent_id', nullable: true })
+  recurrenceParentId!: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
