@@ -98,7 +98,7 @@ export class AuthService {
 
     const payload = { sub: u.id, email: u.email, tenantId, role: roleName, permissions };
     return {
-      accessToken:  this.jwtService.sign(payload, { expiresIn: '15m' }),
+      accessToken:  this.jwtService.sign(payload, { expiresIn: '8h' }),
       refreshToken: this.jwtService.sign(payload, { expiresIn: '7d' }),
       user: { id: u.id, email: u.email, firstName: u.first_name, lastName: u.last_name, role: roleName },
     };
@@ -109,7 +109,7 @@ export class AuthService {
     if (isBlacklisted) throw new UnauthorizedException('Token has been revoked');
     try {
       const payload = this.jwtService.verify(token);
-      return { accessToken: this.jwtService.sign({ sub: payload.sub, email: payload.email, tenantId: payload.tenantId }, { expiresIn: '15m' }) };
+      return { accessToken: this.jwtService.sign({ sub: payload.sub, email: payload.email, tenantId: payload.tenantId }, { expiresIn: '8h' }) };
     } catch { throw new UnauthorizedException('Invalid refresh token'); }
   }
 
