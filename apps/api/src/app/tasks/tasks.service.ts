@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   Injectable,
   NotFoundException,
@@ -174,6 +175,11 @@ export class TasksService {
       parentTaskId: dto.parentTaskId,
       projectId:    dto.projectId,
       dueDate:      dto.dueDate ? new Date(dto.dueDate) : undefined,
+      // ── Recurrence ──
+      isRecurring:          dto.isRecurring ?? false,
+      recurrenceFrequency:  dto.recurrenceFrequency ?? null,
+      recurrenceEndDate:    dto.recurrenceEndDate ? new Date(dto.recurrenceEndDate) : null,
+      nextRecurrenceDate:   dto.isRecurring ? this.computeNextDate(dto.recurrenceFrequency!) : null,
     });
 
     const saved = await this.taskRepo.save(task);
@@ -458,6 +464,20 @@ export class TasksService {
       message: 'Priority updated',
       task: { id: saved.id, taskNumber: saved.taskNumber, priority: saved.priority },
     };
+  }
+
+  // ── Compute first nextRecurrenceDate from today ──
+  private computeNextDate(freq: string): Date {
+    const d = new Date();
+    switch (freq) {
+      case 'DAILY':       d.setDate(d.getDate() + 1);       break;
+      case 'WEEKLY':      d.setDate(d.getDate() + 7);       break;
+      case 'MONTHLY':     d.setMonth(d.getMonth() + 1);     break;
+      case 'QUARTERLY':   d.setMonth(d.getMonth() + 3);     break;
+      case 'HALF_YEARLY': d.setMonth(d.getMonth() + 6);     break;
+      case 'YEARLY':      d.setFullYear(d.getFullYear() + 1); break;
+    }
+    return d;
   }
 
   private async checkSubTaskDepth(parentId: string, currentDepth: number): Promise<void> {
