@@ -48,6 +48,7 @@ export class TasksService {
         'task.status', 'task.priority', 'task.type',
         'task.assignee_id', 'task.reporter_id', 'task.parent_task_id',
         'task.due_date', 'task.created_at', 'task.updated_at',
+        'task.extension_count', 'task.original_due_date', 'task.last_extended_at',
       ])
       .addSelect('assignee.first_name', 'assignee_first_name')
       .addSelect('assignee.last_name',  'assignee_last_name')
@@ -133,19 +134,22 @@ export class TasksService {
     const raw = await query.orderBy('task.created_at', 'DESC').getRawMany();
 
     return raw.map(r => ({
-      id:           r.task_id,
-      taskNumber:   r.task_task_number,
-      title:        r.task_title,
-      description:  r.task_description,
-      status:       r.task_status,
-      priority:     r.task_priority,
-      type:         r.task_type,
-      assigneeId:   r.task_assignee_id,
-      reporterId:   r.task_reporter_id,
-      parentTaskId: r.task_parent_task_id,
-      dueDate:      r.task_due_date,
-      createdAt:    r.task_created_at,
-      updatedAt:    r.task_updated_at,
+      id:              r.task_id,
+      taskNumber:      r.task_task_number,
+      title:           r.task_title,
+      description:     r.task_description,
+      status:          r.task_status,
+      priority:        r.task_priority,
+      type:            r.task_type,
+      assigneeId:      r.task_assignee_id,
+      reporterId:      r.task_reporter_id,
+      parentTaskId:    r.task_parent_task_id,
+      dueDate:         r.task_due_date,
+      createdAt:       r.task_created_at,
+      updatedAt:       r.task_updated_at,
+      extensionCount:  r.task_extension_count  ?? 0,
+      originalDueDate: r.task_original_due_date ?? null,
+      lastExtendedAt:  r.task_last_extended_at  ?? null,
       assignee: r.task_assignee_id ? {
         id:        r.task_assignee_id,
         firstName: r.assignee_first_name,
