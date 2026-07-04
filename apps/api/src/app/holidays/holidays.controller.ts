@@ -7,9 +7,6 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { HolidaysService } from './holidays.service';
 import { HolidayType } from './holiday.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
-import { Role } from '../common/enums/roles.enum';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Holidays')
@@ -25,9 +22,8 @@ export class HolidaysController {
     return this.holidaysService.findAll(year ? parseInt(year) : undefined);
   }
 
-  // ── New endpoint: holidays to show in announcement widget ──
   @Get('announcements')
-  @ApiOperation({ summary: 'Get upcoming holidays for announcement widget (2 days before + day of)' })
+  @ApiOperation({ summary: 'Get upcoming holidays for announcement widget' })
   async getAnnouncements() {
     return this.holidaysService.getUpcomingAnnouncements();
   }
@@ -45,8 +41,6 @@ export class HolidaysController {
   }
 
   @Post()
-  @Roles(Role.ADMIN)
-  @UseGuards(RolesGuard)
   @ApiOperation({ summary: 'Add a holiday (admin only)' })
   async create(
     @Body() body: { name: string; date: string; holidayType?: HolidayType; description?: string },
@@ -56,17 +50,13 @@ export class HolidaysController {
   }
 
   @Put(':id')
-  @Roles(Role.ADMIN)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Update a holiday (admin only)' })
+  @ApiOperation({ summary: 'Update a holiday' })
   async update(@Param('id') id: string, @Body() body: any) {
     return this.holidaysService.update(id, body);
   }
 
   @Delete(':id')
-  @Roles(Role.ADMIN)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Delete a holiday (admin only)' })
+  @ApiOperation({ summary: 'Delete a holiday' })
   async remove(@Param('id') id: string) {
     return this.holidaysService.remove(id);
   }
