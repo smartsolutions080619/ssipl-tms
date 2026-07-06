@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -65,23 +64,60 @@ export class ReportsService {
   }
 
   async getTasksByDepartmentAndUser(currentUser: any, query: ReportQueryDto) {
-    const qb   = await this.buildBaseQuery(currentUser, query);
-    const rows = await qb
-      .leftJoin('tenant_ssipl.users',       'assignee', 'assignee.id::text = task.assignee_id::text')
-      .leftJoin('tenant_ssipl.departments', 'dept',     'dept.id::text = assignee.department_id::text')
-      .select('dept.id', 'department_id').addSelect('dept.name', 'department_name')
-      .addSelect('assignee.id', 'user_id').addSelect('assignee.first_name', 'user_first_name').addSelect('assignee.last_name', 'user_last_name')
-      .addSelect('COUNT(*)', 'count')
-      .groupBy('dept.id').addGroupBy('dept.name').addGroupBy('assignee.id').addGroupBy('assignee.first_name').addGroupBy('assignee.last_name')
-      .getRawMany();
+    const role = currentUser?.role?.toLowerCase();
+    let whereClause = `t.deleted_at IS NULL`;
+    const params: any[] = [];
+
+    if (role !== 'admin') {
+      if (role === 'manager' || role === 'team lead') {
+        const deptUsers = await this.taskRepo.query(
+          `SELECT id FROM tenant_ssipl.users WHERE department_id = (SELECT department_id FROM tenant_ssipl.users WHERE id = $1) AND deleted_at IS NULL`,
+          [currentUser.userId]
+        );
+        const ids = deptUsers.map((u: any) => u.id);
+        if (ids.length > 0) {
+          params.push(currentUser.userId, ...ids);
+          whereClause += ` AND (t.assignee_id = $1 OR t.reporter_id = $1 OR t.assignee_id IN (${ids.map((_: any, i: number) => `$${i + 2}`).join(',')}))`;
+        } else {
+          params.push(currentUser.userId);
+          whereClause += ` AND (t.assignee_id = $1 OR t.reporter_id = $1)`;
+        }
+      } else {
+        params.push(currentUser.userId);
+        whereClause += ` AND (t.assignee_id = $1 OR t.reporter_id = $1)`;
+      }
+    }
+
+    if (query?.startDate) { params.push(query.startDate); whereClause += ` AND t.created_at >= $${params.length}`; }
+    if (query?.endDate)   { params.push(query.endDate);   whereClause += ` AND t.created_at <= $${params.length}`; }
+
+    const rows = await this.taskRepo.query(`
+      SELECT
+        d.id   AS department_id,
+        d.name AS department_name,
+        u.id   AS user_id,
+        u.first_name AS user_first_name,
+        u.last_name  AS user_last_name,
+        COUNT(t.id)  AS count
+      FROM tenant_ssipl.tasks t
+      LEFT JOIN tenant_ssipl.users u       ON u.id::text = t.assignee_id::text
+      LEFT JOIN tenant_ssipl.departments d ON d.id::text = u.department_id::text
+      WHERE ${whereClause}
+      GROUP BY d.id, d.name, u.id, u.first_name, u.last_name
+    `, params);
 
     const deptMap = new Map<string, any>();
-    const userList = rows.map(r => {
+    const userList = rows.map((r: any) => {
       const key  = r.department_id || 'unassigned';
       const name = r.department_name || 'Unassigned';
       if (!deptMap.has(key)) deptMap.set(key, { departmentId: r.department_id, departmentName: name, count: 0 });
       deptMap.get(key)!.count += Number(r.count);
-      return { userId: r.user_id, userName: r.user_id ? `${r.user_first_name || ''} ${r.user_last_name || ''}`.trim() : 'Unassigned', departmentName: name, count: Number(r.count) };
+      return {
+        userId:         r.user_id,
+        userName:       r.user_id ? `${r.user_first_name || ''} ${r.user_last_name || ''}`.trim() : 'Unassigned',
+        departmentName: name,
+        count:          Number(r.count),
+      };
     });
 
     return { byDepartment: Array.from(deptMap.values()), byUser: userList };
@@ -96,7 +132,14 @@ export class ReportsService {
 
     const map = new Map<string, any>();
     for (const r of createdRows)   { const k = new Date(r.period).toISOString(); map.set(k, { period: k, created: Number(r.count), completed: 0 }); }
-    for (const r of completedRows) { const k = new Date(r.period).toISOString(); map.has(k) ? (map.get(k)!.completed = Number(r.count)) : map.set(k, { period: k, created: 0, completed: Number(r.count) }); }
+    for (const r of completedRows) {
+      const k = new Date(r.period).toISOString();
+      if (map.has(k)) {
+        map.get(k)!.completed = Number(r.count);
+      } else {
+        map.set(k, { period: k, created: 0, completed: Number(r.count) });
+      }
+    }
     return Array.from(map.values()).sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime());
   }
 
