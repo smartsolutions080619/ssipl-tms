@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ReportsService } from './reports.service';
 import { ReportQueryDto } from './dto/report-query.dto';
@@ -8,7 +9,6 @@ import { ReportQueryDto } from './dto/report-query.dto';
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
-  // Combined endpoint — fetches all chart data in one call
   @Get('summary')
   getSummary(@Req() req: any, @Query() query: ReportQueryDto) {
     return this.reportsService.getSummary(req.user, query);
@@ -32,5 +32,17 @@ export class ReportsController {
   @Get('completion-trend')
   getCompletionTrend(@Req() req: any, @Query() query: ReportQueryDto) {
     return this.reportsService.getCompletionTrend(req.user, query);
+  }
+
+  // ── NEW: Individual user report ──
+  @Get('individual/:userId')
+  getIndividualReport(@Param('userId') userId: string, @Query() query: ReportQueryDto) {
+    return this.reportsService.getIndividualReport(userId, query);
+  }
+
+  // ── NEW: Department detail report ──
+  @Get('department/:deptId')
+  getDepartmentReport(@Param('deptId') deptId: string, @Query() query: ReportQueryDto) {
+    return this.reportsService.getDepartmentReport(deptId, query);
   }
 }
