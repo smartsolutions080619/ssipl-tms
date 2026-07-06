@@ -66,7 +66,8 @@ import {
           name: 'manager',
           description: 'Can manage tasks and view users',
           permissions: [
-            'user:read', 'task:create', 'task:read', 'task:update', 'task:assign', 'report:read',
+            'user:read', 'task:create', 'task:read', 'task:update', 'task:assign',
+            'task:view_department', 'report:read',
           ],
         },
         {

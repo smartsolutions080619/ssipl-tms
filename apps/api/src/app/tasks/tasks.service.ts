@@ -68,17 +68,16 @@ export class TasksService {
     );
 
     const permissions: string[] = roleResult?.[0]?.permissions || [];
-    const canViewAll = permissions.includes('task:view_all');
-    const roleLower  = currentUser.role?.toLowerCase() || '';
+    const canViewAll  = permissions.includes('task:view_all');
+    const canViewDept = permissions.includes('task:view_department');
+    const roleLower   = currentUser.role?.toLowerCase() || '';
 
     if (canViewAll || roleLower === 'admin') {
       // ── Can see ALL tasks ──
-    } else if (
-      roleLower === 'manager' ||
-      roleLower === 'team lead' ||
-      roleLower === 'team_lead'
-    ) {
-      // ── Manager sees:
+    } else if (canViewDept) {
+      // ── Dept-visibility roles (Manager, Senior Executive, MD, CEO, etc. —
+      //    whichever roles have been granted the task:view_department
+      //    permission from the Roles page) see:
       //    1. Own dept members' tasks (as before)
       //    2. Tasks assigned TO any of own dept members — even if task is from another dept
       //    3. Tasks where own dept member assigned someone from another dept
