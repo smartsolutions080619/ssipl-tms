@@ -485,6 +485,10 @@ export class TasksService {
   // ── Compute first nextRecurrenceDate from today ──
   private computeNextDate(freq: string): Date {
     const d = new Date();
+    d.setHours(0, 0, 0, 0); // normalize to midnight so it matches the cron's
+                            // midnight comparison — otherwise a task created
+                            // at, say, 3:47 PM would need "tomorrow 3:47 PM"
+                            // to be <= "tomorrow midnight", which never happens
     switch (freq) {
       case 'DAILY':       d.setDate(d.getDate() + 1);       break;
       case 'WEEKLY':      d.setDate(d.getDate() + 7);       break;

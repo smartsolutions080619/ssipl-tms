@@ -108,6 +108,7 @@ export class RecurringTaskService {
   // ── Advance the template's nextRecurrenceDate ──
   private async updateNextRecurrenceDate(template: Task) {
     const next = new Date(template.nextRecurrenceDate!);
+    next.setHours(0, 0, 0, 0); // keep it pinned to midnight every cycle
     switch (template.recurrenceFrequency) {
       case RecurrenceFrequency.DAILY:       next.setDate(next.getDate() + 1);      break;
       case RecurrenceFrequency.WEEKLY:      next.setDate(next.getDate() + 7);      break;
