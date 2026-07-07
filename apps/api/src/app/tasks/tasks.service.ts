@@ -79,8 +79,15 @@ export class TasksService {
       //    whichever roles have been granted the task:view_department
       //    permission from the Roles page) see:
       //    1. Own dept members' tasks (as before)
-      //    2. Tasks assigned TO any of own dept members — even if task is from another dept
-      //    3. Tasks where own dept member assigned someone from another dept
+      //    2. Tasks currently assigned TO any of own dept members — even if
+      //       the task originated in another dept (transient: only while
+      //       their employee is the CURRENT holder)
+      //    3. Every task in a forward/subtask chain that was ORIGINALLY
+      //       owned by their dept — permanent "chain of custody" visibility
+      //       for the manager whose employee is the root of the chain,
+      //       even after it's been forwarded through other departments
+      //       and back. This does NOT extend to other managers whose
+      //       employees only touched it as an intermediate hop.
       const deptUsers = await this.taskRepo.query(
         `SELECT id FROM tenant_ssipl.users
          WHERE department_id = (
@@ -91,18 +98,39 @@ export class TasksService {
       const deptUserIds = deptUsers.map((u: { id: string }) => u.id);
 
       if (deptUserIds.length > 0) {
-        // Show tasks where:
-        // - assignee is in this dept, OR
-        // - reporter is in this dept, OR
-        // - manager themselves is assignee/reporter
-        // This covers cross-dept scenario: if emp from another dept
-        // is assigned to a task by someone in this dept, manager sees it
+        // Walk every task's parentTaskId chain up to its root ancestor and
+        // find which tasks' root was originally assigned to someone in
+        // this manager's department — that's rule 3 above.
+        const rootOwnedRows = await this.taskRepo.query(
+          `
+          WITH RECURSIVE task_lineage AS (
+            SELECT id, parent_task_id, assignee_id AS root_assignee_id
+            FROM tenant_ssipl.tasks
+            WHERE parent_task_id IS NULL
+
+            UNION ALL
+
+            SELECT t.id, t.parent_task_id, tl.root_assignee_id
+            FROM tenant_ssipl.tasks t
+            JOIN task_lineage tl ON t.parent_task_id = tl.id
+          )
+          SELECT id FROM task_lineage WHERE root_assignee_id = ANY($1)
+          `,
+          [deptUserIds]
+        );
+        const rootOwnedTaskIds: string[] = rootOwnedRows.map((r: { id: string }) => r.id);
+
         query.andWhere(
           `(task.assignee_id = :userId
             OR task.reporter_id = :userId
-            OR task.assignee_id   IN (:...deptUserIds)
-            OR task.reporter_id   IN (:...deptUserIds))`,
-          { userId: currentUser.userId, deptUserIds }
+            OR task.assignee_id IN (:...deptUserIds)
+            OR task.id IN (:...rootOwnedTaskIds))`,
+          {
+            userId: currentUser.userId,
+            deptUserIds,
+            // avoid an empty IN () which some drivers choke on
+            rootOwnedTaskIds: rootOwnedTaskIds.length > 0 ? rootOwnedTaskIds : ['00000000-0000-0000-0000-000000000000'],
+          }
         );
       } else {
         query.andWhere(
