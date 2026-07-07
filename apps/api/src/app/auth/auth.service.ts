@@ -13,6 +13,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { TokenBlacklistService } from './token-blacklist.service';
 import { MailService } from '../mail/mail.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 
@@ -24,6 +25,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly tokenBlacklist: TokenBlacklistService,
     private readonly mailService: MailService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -97,10 +99,13 @@ export class AuthService {
     }
 
     const payload = { sub: u.id, email: u.email, tenantId, role: roleName, permissions };
+    const { count: unreadNotifications } = await this.notificationsService.getUnreadCount(u.id);
+
     return {
       accessToken:  this.jwtService.sign(payload, { expiresIn: '8h' }),
       refreshToken: this.jwtService.sign(payload, { expiresIn: '7d' }),
       user: { id: u.id, email: u.email, firstName: u.first_name, lastName: u.last_name, role: roleName },
+      unreadNotifications,
     };
   }
 

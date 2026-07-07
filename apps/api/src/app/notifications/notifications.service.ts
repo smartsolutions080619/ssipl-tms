@@ -1,8 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Notification } from './notification.entity';
 import { Announcement, AnnouncementPriority } from './announcement.entity';
+import { NotificationsGateway } from './notifications.gateway';
 
 @Injectable()
 export class NotificationsService {
@@ -11,6 +13,7 @@ export class NotificationsService {
     private readonly notifRepo: Repository<Notification>,
     @InjectRepository(Announcement)
     private readonly announcementRepo: Repository<Announcement>,
+    private readonly gateway: NotificationsGateway,
   ) {}
 
   // ── Create notification with optional link ──
@@ -22,7 +25,17 @@ export class NotificationsService {
     link?: string,
   ) {
     const notif = this.notifRepo.create({ userId, title, message, metadata, link: link || null });
-    return this.notifRepo.save(notif);
+    const saved = await this.notifRepo.save(notif);
+
+    // ── Real-time push: if the user is online, their bell + toast update
+    //    instantly instead of waiting for the next poll/refetch ──
+    const { count } = await this.getUnreadCount(userId);
+    this.gateway.sendToUser(userId, 'new_notification', {
+      notification: saved,
+      unreadCount: count,
+    });
+
+    return saved;
   }
 
   // ── Task assigned notification ──

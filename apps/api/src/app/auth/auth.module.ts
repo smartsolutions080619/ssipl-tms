@@ -13,6 +13,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { TokenBlacklistService } from './token-blacklist.service';
 import { MailModule } from '../mail/mail.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -26,7 +27,8 @@ import { MailModule } from '../mail/mail.module';
       }),
       inject: [ConfigService],
     }),
-    MailModule,  // ← yahi missing tha
+    MailModule,  
+    NotificationsModule,
   ],
   providers: [
     ApiKeyService,
