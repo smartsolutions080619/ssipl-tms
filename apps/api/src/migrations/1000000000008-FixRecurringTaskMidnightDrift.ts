@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class FixRecurringTaskMidnightDrift1000000000007
+export class FixRecurringTaskMidnightDrift1000000000008
   implements MigrationInterface
 {
   // Existing recurring template tasks may have a next_recurrence_date with
