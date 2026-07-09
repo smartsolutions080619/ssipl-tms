@@ -269,6 +269,7 @@ export class TasksService {
     const task     = await this.findOne(id);
     const oldValue = { status: task.status };
     const oldAssigneeId = task.assigneeId;
+    const oldReporterId = task.reporterId;
 
     const action = dto.status && dto.status !== task.status
       ? ActivityAction.STATUS_CHANGED
@@ -282,6 +283,16 @@ export class TasksService {
     if (dto.assigneeId && dto.assigneeId !== oldAssigneeId && dto.assigneeId !== userId) {
       await this.notificationsService.notifyTaskAssigned(
         dto.assigneeId, saved.taskNumber, saved.title,
+      );
+    }
+
+    if (dto.reporterId && dto.reporterId !== oldReporterId && dto.reporterId !== userId) {
+      await this.notificationsService.create(
+        dto.reporterId,
+        'Task reported under your name',
+        `${saved.taskNumber}: "${saved.title}" now has you as the reporter`,
+        undefined,
+        `/tasks/${saved.id}`,
       );
     }
 
