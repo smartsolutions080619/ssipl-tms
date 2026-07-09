@@ -201,10 +201,17 @@ export class TasksService {
     return this.taskRepo.find({ where: { parentTaskId: parentId, deletedAt: IsNull() } });
   }
 
-  async create(dto: CreateTaskDto, reporterId: string) {
+  async create(dto: CreateTaskDto, creatorId: string) {
     if (dto.parentTaskId) {
       await this.checkSubTaskDepth(dto.parentTaskId, 1);
     }
+
+    // The task's "reporter" — defaults to whoever is creating it, but can
+    // be explicitly set to someone else (e.g. "log this on behalf of X").
+    // Every existing visibility/notification rule already keys off
+    // reporterId, so setting it here is enough for those rules to apply
+    // correctly to whoever ends up as the reporter — no other change needed.
+    const reporterId = dto.reporterId || creatorId;
 
     const taskNumber = await this.generateTaskNumber();
 
@@ -228,8 +235,10 @@ export class TasksService {
 
     const saved = await this.taskRepo.save(task);
 
+    // Activity log always credits whoever actually clicked "Create" —
+    // that's the real audit trail, separate from the chosen reporter.
     await this.activityLogService.log(
-      reporterId, ActivityAction.TASK_CREATED, saved.id,
+      creatorId, ActivityAction.TASK_CREATED, saved.id,
       undefined,
       { title: saved.title, taskNumber: saved.taskNumber },
     );
@@ -237,6 +246,19 @@ export class TasksService {
     if (dto.assigneeId && dto.assigneeId !== reporterId) {
       await this.notificationsService.notifyTaskAssigned(
         dto.assigneeId, saved.taskNumber, saved.title,
+      );
+    }
+
+    // If someone else was set as the reporter (not the creator, and not
+    // already notified as the assignee), let them know a task now exists
+    // under their name.
+    if (dto.reporterId && dto.reporterId !== creatorId && dto.reporterId !== dto.assigneeId) {
+      await this.notificationsService.create(
+        dto.reporterId,
+        'Task reported under your name',
+        `${saved.taskNumber}: "${saved.title}" was created with you as the reporter`,
+        undefined,
+        `/tasks/${saved.id}`,
       );
     }
 

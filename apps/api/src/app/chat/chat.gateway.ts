@@ -115,6 +115,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data.userId;
     if (!userId || !data.content?.trim()) return;
 
+    // ── Broadcast channels: read-only for everyone except Admins ──
+    const [room] = await this.dataSource.query(
+      `SELECT type FROM tenant_ssipl.chat_rooms WHERE id = $1`,
+      [data.roomId]
+    );
+    if (room?.type === 'channel') {
+      const role = (client.data.user?.role || '').toLowerCase();
+      if (role !== 'admin') {
+        client.emit('error', { message: 'This is a broadcast channel — only Admins can post here' });
+        return;
+      }
+    }
+
     const [msg] = await this.dataSource.query(`
       INSERT INTO tenant_ssipl.chat_messages (room_id, user_id, content, type, file_url, file_name)
       VALUES ($1, $2, $3, $4, $5, $6)
@@ -245,6 +258,40 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     };
 
     client.emit('dm_created', roomWithUser);
+    await this.getRooms(client);
+  }
+
+  // ── Create Broadcast Channel (Admin only) ──
+  @SubscribeMessage('create_channel')
+  async createChannel(@ConnectedSocket() client: Socket, @MessageBody() data: {
+    name: string; description?: string;
+  }) {
+    const userId = client.data.userId;
+    const role   = (client.data.user?.role || '').toLowerCase();
+
+    if (role !== 'admin') {
+      client.emit('error', { message: 'Only Admins can create broadcast channels' });
+      return;
+    }
+    if (!data.name?.trim()) return;
+
+    const [room] = await this.dataSource.query(
+      `INSERT INTO tenant_ssipl.chat_rooms (name, type, description, created_by, is_active)
+       VALUES ($1, 'channel', $2, $3, true) RETURNING *`,
+      [data.name.trim(), data.description || null, userId]
+    );
+
+    // Creator joins as room-level admin too (consistent with group pattern)
+    await this.dataSource.query(
+      `INSERT INTO tenant_ssipl.chat_room_members (room_id, user_id, role) VALUES ($1, $2, 'admin')`,
+      [room.id, userId]
+    );
+
+    // Broadcast channels are visible to everyone — nudge all online users
+    // to refresh their room list so the new channel shows up immediately
+    this.server.emit('refresh_rooms');
+
+    client.emit('channel_created', room);
     await this.getRooms(client);
   }
 

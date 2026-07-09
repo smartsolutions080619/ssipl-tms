@@ -38,6 +38,11 @@ export class CreateTaskDto {
   @IsUUID()
   assigneeId?: string;
 
+  @ApiProperty({ required: false, description: 'Who this task is reported under. Defaults to whoever creates the task.' })
+  @IsOptional()
+  @IsUUID()
+  reporterId?: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsUUID()
