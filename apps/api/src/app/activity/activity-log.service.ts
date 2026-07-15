@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -34,12 +35,46 @@ export class ActivityLogService {
     });
   }
 
-  async getUserActivity(userId: string) {
-    return this.activityRepo.find({
-      where: { userId },
-      order: { createdAt: 'DESC' },
-      take: 50,
-    });
+  async getUserActivity(userId: string, canViewAll = false) {
+    // Rich feed: joins the actor's name, the task's number/title, and (for
+    // assignment events) the target assignee's name — so the frontend can
+    // render sentences like "Vijay assigned TSK-0012 to Bhavin" instead of
+    // a bare "TASK_ASSIGNED" + timestamp.
+    const rows = await this.activityRepo.manager.query(
+      `
+      SELECT
+        log.id, log.action, log.task_id, log.old_value, log.new_value, log.created_at,
+        actor.first_name  AS actor_first_name,
+        actor.last_name   AS actor_last_name,
+        t.task_number     AS task_number,
+        t.title           AS task_title,
+        target.first_name AS target_first_name,
+        target.last_name  AS target_last_name
+      FROM tenant_ssipl.activity_logs log
+      LEFT JOIN tenant_ssipl.users actor  ON actor.id  = log.user_id
+      LEFT JOIN tenant_ssipl.tasks t      ON t.id      = log.task_id
+      LEFT JOIN tenant_ssipl.users target ON target.id = NULLIF(log.new_value->>'assigneeId', '')::uuid
+      ${canViewAll ? '' : 'WHERE log.user_id = $1'}
+      ORDER BY log.created_at DESC
+      LIMIT ${canViewAll ? 50 : 50}
+      `,
+      canViewAll ? [] : [userId],
+    );
+
+    return rows.map((r: any) => ({
+      id:              r.id,
+      action:          r.action,
+      taskId:          r.task_id,
+      taskNumber:      r.task_number,
+      taskTitle:       r.task_title,
+      oldValue:        r.old_value,
+      newValue:        r.new_value,
+      createdAt:       r.created_at,
+      actorFirstName:  r.actor_first_name,
+      actorLastName:   r.actor_last_name,
+      targetFirstName: r.target_first_name,
+      targetLastName:  r.target_last_name,
+    }));
   }
 
   async getAuditLog(filters: {
