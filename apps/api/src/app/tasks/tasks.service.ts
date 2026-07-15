@@ -49,6 +49,8 @@ export class TasksService {
         'task.assignee_id', 'task.reporter_id', 'task.parent_task_id',
         'task.due_date', 'task.created_at', 'task.updated_at',
         'task.extension_count', 'task.original_due_date', 'task.last_extended_at',
+        'task.is_recurring', 'task.recurrence_frequency', 'task.recurrence_end_date',
+        'task.next_recurrence_date',
       ])
       .addSelect('assignee.first_name', 'assignee_first_name')
       .addSelect('assignee.last_name',  'assignee_last_name')
@@ -177,6 +179,10 @@ export class TasksService {
       extensionCount:  r.task_extension_count  ?? 0,
       originalDueDate: r.task_original_due_date ?? null,
       lastExtendedAt:  r.task_last_extended_at  ?? null,
+      isRecurring:          r.task_is_recurring ?? false,
+      recurrenceFrequency:  r.task_recurrence_frequency ?? null,
+      recurrenceEndDate:    r.task_recurrence_end_date  ?? null,
+      nextRecurrenceDate:   r.task_next_recurrence_date ?? null,
       assignee: r.task_assignee_id ? {
         id:        r.task_assignee_id,
         firstName: r.assignee_first_name,
