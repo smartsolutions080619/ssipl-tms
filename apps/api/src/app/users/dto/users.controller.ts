@@ -105,6 +105,13 @@ export class UsersController {
     return this.usersService.update(id, dto);
   }
 
+  @Put(':id/departments')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Set the full list of departments a user belongs to' })
+  async setDepartments(@Param('id') id: string, @Body() body: { departmentIds: string[] }) {
+    return this.usersService.setUserDepartments(id, body.departmentIds || []);
+  }
+
   @Delete(':id')
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Deactivate user' })

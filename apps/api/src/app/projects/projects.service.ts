@@ -163,7 +163,9 @@ export class ProjectsService {
     // Add department members
     if (dto.departmentIds?.length) {
       const deptUsers = await this.projectRepo.query(
-        `SELECT id FROM tenant_ssipl.users WHERE department_id = ANY($1::uuid[]) AND status = 'ACTIVE' AND deleted_at IS NULL`,
+        `SELECT DISTINCT u.id FROM tenant_ssipl.users u
+         JOIN tenant_ssipl.user_departments ud ON ud.user_id = u.id
+         WHERE ud.department_id = ANY($1::uuid[]) AND u.status = 'ACTIVE' AND u.deleted_at IS NULL`,
         [dto.departmentIds]
       );
       for (const u of deptUsers) {
@@ -283,7 +285,9 @@ export class ProjectsService {
     if (!project) throw new NotFoundException('Project not found');
 
     const users = await this.projectRepo.query(
-      `SELECT id FROM tenant_ssipl.users WHERE department_id = $1 AND status = 'ACTIVE' AND deleted_at IS NULL`,
+      `SELECT DISTINCT u.id FROM tenant_ssipl.users u
+       JOIN tenant_ssipl.user_departments ud ON ud.user_id = u.id
+       WHERE ud.department_id = $1 AND u.status = 'ACTIVE' AND u.deleted_at IS NULL`,
       [departmentId]
     );
 

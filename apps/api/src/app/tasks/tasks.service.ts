@@ -90,11 +90,18 @@ export class TasksService {
       //       even after it's been forwarded through other departments
       //       and back. This does NOT extend to other managers whose
       //       employees only touched it as an intermediate hop.
+      // Find every department the current user belongs to (now that a user
+      // can be in multiple departments), then find everyone else who
+      // shares at least one of those departments.
       const deptUsers = await this.taskRepo.query(
-        `SELECT id FROM tenant_ssipl.users
-         WHERE department_id = (
-           SELECT department_id FROM tenant_ssipl.users WHERE id = $1
-         ) AND deleted_at IS NULL`,
+        `SELECT DISTINCT u.id FROM tenant_ssipl.users u
+         WHERE u.deleted_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM tenant_ssipl.user_departments ud_self
+             JOIN tenant_ssipl.user_departments ud_other
+               ON ud_other.department_id = ud_self.department_id
+             WHERE ud_self.user_id = $1 AND ud_other.user_id = u.id
+           )`,
         [currentUser.userId]
       );
       const deptUserIds = deptUsers.map((u: { id: string }) => u.id);

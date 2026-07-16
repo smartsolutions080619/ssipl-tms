@@ -27,13 +27,30 @@ export class UsersService {
   }
 
   async findAll() {
-    return this.userRepo.find({
+    const users = await this.userRepo.find({
       where: { isActive: true },
       select: {
         id: true, email: true, firstName: true, lastName: true,
         roleId: true, departmentId: true, createdAt: true, status: true,
       },
     });
+
+    // Attach the full list of departments each user belongs to
+    // (a user can now be in multiple departments, not just one).
+    const rows = await this.userRepo.query(
+      `SELECT user_id, department_id FROM tenant_ssipl.user_departments`
+    );
+    const deptMap = new Map<string, string[]>();
+    for (const r of rows) {
+      const list = deptMap.get(r.user_id) || [];
+      list.push(r.department_id);
+      deptMap.set(r.user_id, list);
+    }
+
+    return users.map(u => ({
+      ...u,
+      departmentIds: deptMap.get(u.id) || (u.departmentId ? [u.departmentId] : []),
+    }));
   }
 
   async findPending() {
@@ -56,7 +73,52 @@ export class UsersService {
       },
     });
     if (!user) throw new NotFoundException(`User with id ${id} not found`);
-    return user;
+
+    const rows = await this.userRepo.query(
+      `SELECT department_id FROM tenant_ssipl.user_departments WHERE user_id = $1`,
+      [id]
+    );
+    const departmentIds = rows.length
+      ? rows.map((r: any) => r.department_id)
+      : (user.departmentId ? [user.departmentId] : []);
+
+    return { ...user, departmentIds };
+  }
+
+  // ── Get just the department IDs a user belongs to ──
+  async getUserDepartments(userId: string): Promise<string[]> {
+    const rows = await this.userRepo.query(
+      `SELECT department_id FROM tenant_ssipl.user_departments WHERE user_id = $1`,
+      [userId]
+    );
+    return rows.map((r: any) => r.department_id);
+  }
+
+  // ── Replace a user's full set of department memberships ──
+  async setUserDepartments(userId: string, departmentIds: string[]) {
+    await this.findOne(userId); // throws 404 if user doesn't exist
+
+    await this.userRepo.query(
+      `DELETE FROM tenant_ssipl.user_departments WHERE user_id = $1`,
+      [userId]
+    );
+
+    if (departmentIds.length > 0) {
+      const values = departmentIds.map((_, i) => `($1, $${i + 2})`).join(', ');
+      await this.userRepo.query(
+        `INSERT INTO tenant_ssipl.user_departments (user_id, department_id) VALUES ${values}`,
+        [userId, ...departmentIds]
+      );
+    }
+
+    // Keep the legacy single department_id column pointing at the first
+    // department, so any old code that still reads it doesn't break.
+    await this.userRepo.query(
+      `UPDATE tenant_ssipl.users SET department_id = $1 WHERE id = $2`,
+      [departmentIds[0] || null, userId]
+    );
+
+    return { userId, departmentIds };
   }
 
   // ── Approve pending user ──
@@ -71,6 +133,14 @@ export class UsersService {
     user.roleId   = roleId;
     if (departmentId) user.departmentId = departmentId;
     await this.userRepo.save(user);
+
+    if (departmentId) {
+      await this.userRepo.query(
+        `INSERT INTO tenant_ssipl.user_departments (user_id, department_id)
+         VALUES ($1, $2) ON CONFLICT (user_id, department_id) DO NOTHING`,
+        [user.id, departmentId]
+      );
+    }
 
     // ── Email in background — don't block the approve response ──
     this.bgMail(async () => {
@@ -118,6 +188,14 @@ export class UsersService {
     });
     await this.userRepo.save(user);
 
+    if (dto.departmentId) {
+      await this.userRepo.query(
+        `INSERT INTO tenant_ssipl.user_departments (user_id, department_id)
+         VALUES ($1, $2) ON CONFLICT (user_id, department_id) DO NOTHING`,
+        [user.id, dto.departmentId]
+      );
+    }
+
     return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, roleId: user.roleId, departmentId: user.departmentId };
   }
 
@@ -125,6 +203,15 @@ export class UsersService {
     const user = await this.findOne(id);
     Object.assign(user, dto);
     await this.userRepo.save(user);
+
+    if (dto.departmentId !== undefined) {
+      await this.userRepo.query(
+        `INSERT INTO tenant_ssipl.user_departments (user_id, department_id)
+         VALUES ($1, $2) ON CONFLICT (user_id, department_id) DO NOTHING`,
+        [id, dto.departmentId]
+      );
+    }
+
     return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, roleId: user.roleId, departmentId: user.departmentId, isActive: user.isActive };
   }
 

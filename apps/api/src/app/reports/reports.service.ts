@@ -25,9 +25,14 @@ export class ReportsService {
       // sees everything
     } else if (role === 'manager' || role === 'team lead') {
       const deptUsers = await this.taskRepo.query(
-        `SELECT id FROM tenant_ssipl.users
-         WHERE department_id = (SELECT department_id FROM tenant_ssipl.users WHERE id = $1)
-         AND deleted_at IS NULL`,
+        `SELECT DISTINCT u.id FROM tenant_ssipl.users u
+         WHERE u.deleted_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM tenant_ssipl.user_departments ud_self
+             JOIN tenant_ssipl.user_departments ud_other
+               ON ud_other.department_id = ud_self.department_id
+             WHERE ud_self.user_id = $1 AND ud_other.user_id = u.id
+           )`,
         [currentUser.userId],
       );
       const deptUserIds = deptUsers.map((u: any) => u.id);
@@ -71,7 +76,14 @@ export class ReportsService {
     if (role !== 'admin') {
       if (role === 'manager' || role === 'team lead') {
         const deptUsers = await this.taskRepo.query(
-          `SELECT id FROM tenant_ssipl.users WHERE department_id = (SELECT department_id FROM tenant_ssipl.users WHERE id = $1) AND deleted_at IS NULL`,
+          `SELECT DISTINCT u.id FROM tenant_ssipl.users u
+           WHERE u.deleted_at IS NULL
+             AND EXISTS (
+               SELECT 1 FROM tenant_ssipl.user_departments ud_self
+               JOIN tenant_ssipl.user_departments ud_other
+                 ON ud_other.department_id = ud_self.department_id
+               WHERE ud_self.user_id = $1 AND ud_other.user_id = u.id
+             )`,
           [currentUser.userId]
         );
         const ids = deptUsers.map((u: any) => u.id);
@@ -211,9 +223,10 @@ export class ReportsService {
               COUNT(CASE WHEN t.status = 'IN_PROGRESS' THEN 1 END) AS in_progress,
               COUNT(CASE WHEN t.due_date IS NOT NULL AND t.due_date < NOW() AND t.status NOT IN ('DONE','CANCELLED') THEN 1 END) AS overdue
        FROM tenant_ssipl.users u
+       JOIN tenant_ssipl.user_departments ud ON ud.user_id = u.id AND ud.department_id = $1
        LEFT JOIN tenant_ssipl.roles r ON r.id::text = u.role_id::text
        LEFT JOIN tenant_ssipl.tasks t ON t.assignee_id::text = u.id::text AND t.deleted_at IS NULL
-       WHERE u.department_id = $1 AND u.deleted_at IS NULL
+       WHERE u.deleted_at IS NULL
        GROUP BY u.id, u.first_name, u.last_name, u.email, r.name
        ORDER BY total_tasks DESC`, [deptId]
     );
@@ -221,8 +234,8 @@ export class ReportsService {
     const statusBreakdown = await this.taskRepo.query(
       `SELECT t.status, COUNT(*) AS count
        FROM tenant_ssipl.tasks t
-       LEFT JOIN tenant_ssipl.users u ON u.id::text = t.assignee_id::text
-       WHERE u.department_id = $1 AND t.deleted_at IS NULL
+       JOIN tenant_ssipl.user_departments ud ON ud.user_id = t.assignee_id AND ud.department_id = $1
+       WHERE t.deleted_at IS NULL
        GROUP BY t.status`, [deptId]
     );
 
@@ -267,3 +280,4 @@ export class ReportsService {
     };
   }
 }
+
