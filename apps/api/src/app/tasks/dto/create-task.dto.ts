@@ -53,6 +53,11 @@ export class CreateTaskDto {
   @IsUUID()
   projectId?: string;
 
+  @ApiProperty({ required: false, description: 'Which department this task is tagged under.' })
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsDateString()

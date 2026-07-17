@@ -69,6 +69,9 @@ export class Task {
   @Column({ name: 'project_id', nullable: true })
   projectId!: string | null;
 
+  @Column({ name: 'department_id', nullable: true })
+  departmentId!: string | null;
+
   @Column({ name: 'due_date', nullable: true })
   dueDate!: Date | null;
 

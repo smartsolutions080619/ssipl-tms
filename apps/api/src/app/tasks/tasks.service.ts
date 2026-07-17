@@ -43,6 +43,7 @@ export class TasksService {
     const query = this.taskRepo.createQueryBuilder('task')
       .leftJoin('users', 'assignee', 'assignee.id::text = task.assignee_id::text')
       .leftJoin('users', 'reporter', 'reporter.id::text = task.reporter_id::text')
+      .leftJoin('departments', 'dept', 'dept.id::text = task.department_id::text')
       .addSelect([
         'task.id', 'task.task_number', 'task.title', 'task.description',
         'task.status', 'task.priority', 'task.type',
@@ -50,13 +51,14 @@ export class TasksService {
         'task.due_date', 'task.created_at', 'task.updated_at',
         'task.extension_count', 'task.original_due_date', 'task.last_extended_at',
         'task.is_recurring', 'task.recurrence_frequency', 'task.recurrence_end_date',
-        'task.next_recurrence_date',
+        'task.next_recurrence_date', 'task.department_id',
       ])
       .addSelect('assignee.first_name', 'assignee_first_name')
       .addSelect('assignee.last_name',  'assignee_last_name')
       .addSelect('assignee.email',      'assignee_email')
       .addSelect('reporter.first_name', 'reporter_first_name')
       .addSelect('reporter.last_name',  'reporter_last_name')
+      .addSelect('dept.name',           'department_name')
       .where('task.deleted_at IS NULL');
 
     if (!currentUser) return [];
@@ -190,6 +192,8 @@ export class TasksService {
       recurrenceFrequency:  r.task_recurrence_frequency ?? null,
       recurrenceEndDate:    r.task_recurrence_end_date  ?? null,
       nextRecurrenceDate:   r.task_next_recurrence_date ?? null,
+      departmentId:   r.task_department_id ?? null,
+      departmentName: r.department_name    ?? null,
       assignee: r.task_assignee_id ? {
         id:        r.task_assignee_id,
         firstName: r.assignee_first_name,
@@ -238,6 +242,7 @@ export class TasksService {
       reporterId,
       parentTaskId: dto.parentTaskId,
       projectId:    dto.projectId,
+      departmentId: dto.departmentId ?? null,
       dueDate:      dto.dueDate ? new Date(dto.dueDate) : undefined,
       // ── Recurrence ──
       isRecurring:          dto.isRecurring ?? false,

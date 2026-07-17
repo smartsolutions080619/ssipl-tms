@@ -40,6 +40,11 @@ export class UpdateTaskDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
+  @IsUUID()
+  departmentId?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsDateString()
   dueDate?: string;
 }
