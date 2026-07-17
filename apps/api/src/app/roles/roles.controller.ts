@@ -16,8 +16,7 @@ export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
   @Get()
-  @Roles(RoleEnum.ADMIN)
-  @ApiOperation({ summary: 'Get all roles' })
+  @ApiOperation({ summary: 'Get all roles (names/permissions — read-only for any authenticated user)' })
   async findAll() {
     return this.rolesService.findAll();
   }
