@@ -45,34 +45,43 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // ── Get rooms ──
-  // FIX: added DISTINCT ON (r.id) and scoped the chat_room_members join
+  // FIX 1: added DISTINCT ON (r.id) and scoped the chat_room_members join
   // to type='direct' only. Previously every group's row was duplicated
   // once per member because the join had no type guard, so a 4-member
   // group showed up 4 times in the sidebar.
+  // FIX 2: DISTINCT ON (r.id) requires r.id to lead the ORDER BY, which
+  // means the *visible* result order was actually just sorted by room
+  // UUID — last_message_at DESC never got a chance to matter, since
+  // there's only ever one row per room id at that point. Wrapped the
+  // whole thing in a subquery so the outer ORDER BY can sort by recency
+  // like a normal chat app (WhatsApp/Slack-style: newest activity first).
   @SubscribeMessage('get_rooms')
   async getRooms(@ConnectedSocket() client: Socket) {
     const userId = client.data.userId;
     const rooms = await this.dataSource.query(`
-      SELECT DISTINCT ON (r.id) r.*,
-        (SELECT content FROM tenant_ssipl.chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) AS last_message,
-        (SELECT created_at FROM tenant_ssipl.chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
-        (SELECT COUNT(*)::int FROM tenant_ssipl.chat_messages WHERE room_id = r.id) AS message_count,
-        ou.id AS other_user_id,
-        ou.first_name AS other_first_name,
-        ou.last_name AS other_last_name,
-        ou.email AS other_email,
-        ou.avatar AS other_avatar,
-        COALESCE(crm_me.unread_count, 0) AS unread_count
-      FROM tenant_ssipl.chat_rooms r
-      LEFT JOIN tenant_ssipl.chat_room_members crm
-        ON crm.room_id = r.id AND crm.user_id::text != $1 AND r.type = 'direct'
-      LEFT JOIN tenant_ssipl.users ou ON ou.id::text = crm.user_id::text AND r.type = 'direct'
-      LEFT JOIN tenant_ssipl.chat_room_members crm_me ON crm_me.room_id = r.id AND crm_me.user_id::text = $1
-      WHERE r.is_active = true
-        AND (r.type = 'channel' OR r.id IN (
-          SELECT room_id FROM tenant_ssipl.chat_room_members WHERE user_id::text = $1
-        ))
-      ORDER BY r.id, last_message_at DESC NULLS LAST, r.created_at ASC
+      SELECT * FROM (
+        SELECT DISTINCT ON (r.id) r.*,
+          (SELECT content FROM tenant_ssipl.chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) AS last_message,
+          (SELECT created_at FROM tenant_ssipl.chat_messages WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
+          (SELECT COUNT(*)::int FROM tenant_ssipl.chat_messages WHERE room_id = r.id) AS message_count,
+          ou.id AS other_user_id,
+          ou.first_name AS other_first_name,
+          ou.last_name AS other_last_name,
+          ou.email AS other_email,
+          ou.avatar AS other_avatar,
+          COALESCE(crm_me.unread_count, 0) AS unread_count
+        FROM tenant_ssipl.chat_rooms r
+        LEFT JOIN tenant_ssipl.chat_room_members crm
+          ON crm.room_id = r.id AND crm.user_id::text != $1 AND r.type = 'direct'
+        LEFT JOIN tenant_ssipl.users ou ON ou.id::text = crm.user_id::text AND r.type = 'direct'
+        LEFT JOIN tenant_ssipl.chat_room_members crm_me ON crm_me.room_id = r.id AND crm_me.user_id::text = $1
+        WHERE r.is_active = true
+          AND (r.type = 'channel' OR r.id IN (
+            SELECT room_id FROM tenant_ssipl.chat_room_members WHERE user_id::text = $1
+          ))
+        ORDER BY r.id, last_message_at DESC NULLS LAST, r.created_at ASC
+      ) rooms_deduped
+      ORDER BY last_message_at DESC NULLS LAST, created_at DESC
     `, [userId]);
     client.emit('rooms', rooms);
   }
