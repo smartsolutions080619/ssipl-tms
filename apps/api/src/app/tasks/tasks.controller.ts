@@ -63,7 +63,7 @@ export class TasksController {
   @Post()
   @ApiOperation({ summary: 'Create a task' })
   async create(@Body() dto: CreateTaskDto, @CurrentUser() user: any) {
-    return this.tasksService.create(dto, user.userId);
+    return this.tasksService.create(dto, user.userId, user.role);
   }
 
   @Post(':id/comments')
@@ -159,6 +159,6 @@ export class TasksController {
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a task' })
   async remove(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.tasksService.remove(id, user.userId);
+    return this.tasksService.remove(id, user);
   }
 }

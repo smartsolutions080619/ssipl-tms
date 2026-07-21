@@ -47,6 +47,7 @@ import { ProjectsModule } from './projects/projects.module';
 import { Project } from './projects/project.entity';
 import { ProjectMember } from './projects/project-member.entity';
 import { ChatModule } from './chat/chat.module';
+import {Designation} from './designations/designation.entity';
 
 @Module({
   imports: [
@@ -73,7 +74,7 @@ import { ChatModule } from './chat/chat.module';
         entities: [
           Tenant, ApiKey, User, Role, Task, Comment, ActivityLog,
           Department, AdminConfig, Notification, Announcement,
-          LeaveRequest, LeaveBalance, Holiday, Project, ProjectMember,
+          LeaveRequest, LeaveBalance, Holiday, Project, ProjectMember, Designation
         ],
         synchronize: false,
         logging: true,

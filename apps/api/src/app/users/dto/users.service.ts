@@ -242,7 +242,19 @@ export class UsersService {
        WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [userId]
     );
-    return user;
+    if (!user) return user;
+
+    // A user can belong to multiple departments — include the full list,
+    // same as findOne(), so the profile page isn't stuck showing only one.
+    const rows = await this.userRepo.query(
+      `SELECT department_id FROM tenant_ssipl.user_departments WHERE user_id = $1`,
+      [userId]
+    );
+    const departmentIds = rows.length
+      ? rows.map((r: any) => r.department_id)
+      : (user.departmentId ? [user.departmentId] : []);
+
+    return { ...user, departmentIds };
   }
 
   async updateMyProfile(userId: string, dto: { firstName?: string; lastName?: string; avatar?: string }) {

@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
@@ -135,6 +136,7 @@ export class TasksService {
           `(task.assignee_id = :userId
             OR task.reporter_id = :userId
             OR task.assignee_id IN (:...deptUserIds)
+            OR task.reporter_id IN (:...deptUserIds)
             OR task.id IN (:...rootOwnedTaskIds))`,
           {
             userId: currentUser.userId,
@@ -218,7 +220,13 @@ export class TasksService {
     return this.taskRepo.find({ where: { parentTaskId: parentId, deletedAt: IsNull() } });
   }
 
-  async create(dto: CreateTaskDto, creatorId: string) {
+  async create(dto: CreateTaskDto, creatorId: string, creatorRole?: string) {
+    // Admins must hand a task off to someone — only regular employees may
+    // leave a task unassigned (e.g. a self-tracked to-do for themselves).
+    if ((creatorRole || '').toLowerCase() === 'admin' && !dto.assigneeId) {
+      throw new BadRequestException('Please assign this task to someone — Admins cannot leave a task unassigned.');
+    }
+
     if (dto.parentTaskId) {
       await this.checkSubTaskDepth(dto.parentTaskId, 1);
     }
@@ -317,13 +325,30 @@ export class TasksService {
     return saved;
   }
 
-  async remove(id: string, userId: string) {
+  async remove(id: string, requester: { userId: string; role?: string; permissions?: string[] }) {
     const task = await this.findOne(id);
+
+    // Admins and anyone with task:delete can remove any task. Otherwise, an
+    // employee may only delete a task that's genuinely their own — one they
+    // created for themselves (unassigned or self-assigned) — not one someone
+    // else assigned to them, and not one they merely reported on someone
+    // else's behalf.
+    const roleLower  = (requester.role || '').toLowerCase();
+    const isOwnTask   = task.reporterId === requester.userId
+      && (!task.assigneeId || task.assigneeId === requester.userId);
+    const canDelete   = roleLower === 'admin'
+      || (requester.permissions || []).includes('task:delete')
+      || isOwnTask;
+
+    if (!canDelete) {
+      throw new ForbiddenException('You do not have permission to delete this task');
+    }
+
     task.deletedAt = new Date();
     await this.taskRepo.save(task);
 
     await this.activityLogService.log(
-      userId, ActivityAction.TASK_DELETED, id,
+      requester.userId, ActivityAction.TASK_DELETED, id,
       { title: task.title, taskNumber: task.taskNumber },
       undefined,
     );
