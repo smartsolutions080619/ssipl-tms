@@ -48,6 +48,7 @@ import { Project } from './projects/project.entity';
 import { ProjectMember } from './projects/project-member.entity';
 import { ChatModule } from './chat/chat.module';
 import {Designation} from './designations/designation.entity';
+import { DesignationsModule } from './designations/designations.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import {Designation} from './designations/designation.entity';
     ActivityLogModule, DepartmentsModule, AdminModule,
     NotificationsModule, MailModule, UploadModule, ReportsModule,
     LeavesModule, HolidaysModule, ProjectsModule, ChatModule,
+    DesignationsModule,
   ],
   controllers: [AppController, SearchController],
   providers: [
