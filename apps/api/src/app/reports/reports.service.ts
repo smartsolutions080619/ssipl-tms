@@ -20,8 +20,13 @@ export class ReportsService {
       .where('task.deleted_at IS NULL');
 
     const role = currentUser?.role?.toLowerCase();
+    // Granting "report:read" from the Roles page is meant to let that
+    // designation see reports the same way an Admin does — it was
+    // previously ignored here, so a custom role with the permission still
+    // got scoped down to only its own tasks and saw an empty report.
+    const canViewAll = role === 'admin' || (currentUser?.permissions || []).includes('report:read');
 
-    if (role === 'admin') {
+    if (canViewAll) {
       // sees everything
     } else if (role === 'manager' || role === 'team lead') {
       const deptUsers = await this.taskRepo.query(
@@ -70,10 +75,11 @@ export class ReportsService {
 
   async getTasksByDepartmentAndUser(currentUser: any, query: ReportQueryDto) {
     const role = currentUser?.role?.toLowerCase();
+    const canViewAll = role === 'admin' || (currentUser?.permissions || []).includes('report:read');
     let whereClause = `t.deleted_at IS NULL`;
     const params: any[] = [];
 
-    if (role !== 'admin') {
+    if (!canViewAll) {
       if (role === 'manager' || role === 'team lead') {
         const deptUsers = await this.taskRepo.query(
           `SELECT DISTINCT u.id FROM tenant_ssipl.users u

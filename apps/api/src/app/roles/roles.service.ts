@@ -47,6 +47,21 @@ import {
   
     async remove(id: string) {
       const role = await this.findOne(id);
+
+      // There's no DB foreign key from users.role_id to roles.id, so deleting
+      // an in-use role would silently orphan every user who holds it — their
+      // role_id would point at nothing and their permissions would just stop
+      // resolving, with no error anywhere to explain why.
+      const [{ count }] = await this.roleRepo.query(
+        `SELECT COUNT(*)::int AS count FROM tenant_ssipl.users WHERE role_id = $1 AND deleted_at IS NULL`,
+        [id],
+      );
+      if (count > 0) {
+        throw new ConflictException(
+          `Cannot delete role "${role.name}" — ${count} user${count > 1 ? 's are' : ' is'} currently assigned to it. Reassign them to a different role first.`,
+        );
+      }
+
       await this.roleRepo.remove(role);
       return { message: `Role "${role.name}" deleted successfully` };
     }
