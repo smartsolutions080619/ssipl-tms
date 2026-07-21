@@ -4,6 +4,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { GlobalExceptionFilter } from './app/common/filters/http-exception.filter';
 import { IoAdapter } from '@nestjs/platform-socket.io';
+import { DataSource } from 'typeorm';
 import helmet from 'helmet';
 import compression = require('compression');
 
@@ -44,6 +45,23 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
   SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
+
+  // ── DB identity log ──
+  // Prints exactly which physical database this running process is talking
+  // to (no credentials). Compare this against whatever pgAdmin/Railway's
+  // Query tab reports — if they don't match, the app and your manual
+  // checks are hitting two different databases, which is the classic cause
+  // of "I added the column and confirmed it exists, but the app still says
+  // it doesn't."
+  try {
+    const dataSource = app.get(DataSource);
+    const [identity] = await dataSource.query(
+      `SELECT current_database() AS database, inet_server_addr()::text AS server_ip, current_setting('search_path') AS search_path`
+    );
+    console.log('🔎 DB identity (live app):', identity);
+  } catch (err) {
+    console.error('🔎 DB identity check failed:', (err as Error).message);
+  }
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
