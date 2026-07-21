@@ -114,7 +114,7 @@ export class AuthService {
     if (isBlacklisted) throw new UnauthorizedException('Token has been revoked');
     try {
       const payload = this.jwtService.verify(token);
-      return { accessToken: this.jwtService.sign({ sub: payload.sub, email: payload.email, tenantId: payload.tenantId }, { expiresIn: '8h' }) };
+      return { accessToken: this.jwtService.sign({ sub: payload.sub, email: payload.email, tenantId: payload.tenantId, role: payload.role, permissions: payload.permissions }, { expiresIn: '8h' }) };
     } catch { throw new UnauthorizedException('Invalid refresh token'); }
   }
 

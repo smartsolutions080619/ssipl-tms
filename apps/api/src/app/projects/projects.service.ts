@@ -31,6 +31,23 @@ export class ProjectsService {
     private readonly notifService: NotificationsService,
   ) {}
 
+  // ── Auto-generate the next sequential project code ──
+  // Matches the existing convention already in use ("001", "002", ...) —
+  // finds the highest purely-numeric project_code on record and increments
+  // it, padding back out to at least 3 digits (grows to 4+ automatically
+  // once you pass 999, so it never collides or needs manual upkeep).
+  private async generateProjectCode(): Promise<string> {
+    const result = await this.projectRepo.query(`
+      SELECT project_code FROM tenant_ssipl.projects
+      WHERE project_code ~ '^[0-9]+$'
+      ORDER BY (project_code::int) DESC
+      LIMIT 1
+    `);
+    const lastNum = result.length ? parseInt(result[0].project_code, 10) : 0;
+    const next = lastNum + 1;
+    return String(next).padStart(3, '0');
+  }
+
   // ── Get all projects (with member count + task stats + manager) ──
   async findAll(userId: string, role: string) {
     const isAdmin = role?.toLowerCase() === 'admin';
@@ -84,8 +101,7 @@ export class ProjectsService {
       WHERE p.id = $1 AND p.deleted_at IS NULL
       GROUP BY p.id, u.first_name, u.last_name, mgr.first_name, mgr.last_name, mgr.email
     `, [id]);
-
-    if (!project) throw new NotFoundException('Project not found');
+if (!project) throw new NotFoundException('Project not found');
 
     // Get members
     const members = await this.memberRepo.query(`
@@ -112,10 +128,14 @@ export class ProjectsService {
     managerId?: string;
   }, createdBy: string) {
 
+    // Auto-generate the project code unless one was explicitly provided
+    // (kept optional for backward-compat, but the UI no longer asks for it).
+    const projectCode = dto.projectCode?.trim() || await this.generateProjectCode();
+
     const project = this.projectRepo.create({
       name:        dto.name,
       description: dto.description || null,
-      projectCode: dto.projectCode || null,
+      projectCode,
       status:      dto.status    || ProjectStatus.PLANNING,
       priority:    dto.priority  || ProjectPriority.MEDIUM,
       color:       dto.color     || '#228b98',
@@ -146,8 +166,7 @@ export class ProjectsService {
         role: ProjectMemberRole.PROJECT_LEAD, addedBy: createdBy,
       }));
     }
-
-    // Add individual members
+ // Add individual members
     if (dto.memberIds?.length) {
       for (const uid of dto.memberIds) {
         if (!allUserIds.has(uid)) {
@@ -195,8 +214,7 @@ export class ProjectsService {
         );
       }
     }
-
-    return this.findOne(saved.id);
+ return this.findOne(saved.id);
   }
 
   // ── Update project ──
@@ -213,7 +231,9 @@ export class ProjectsService {
     if (dto.startDate)   project.startDate   = new Date(dto.startDate);
     if (dto.endDate)     project.endDate     = new Date(dto.endDate);
     if (dto.progress !== undefined) project.progress = dto.progress;
-    if (dto.projectCode) project.projectCode = dto.projectCode;
+    // Project code is auto-generated at creation time and treated as
+    // immutable afterward — no longer accepted from the update DTO, so a
+    // stray/blank value from an old client can never wipe it out by mistake.
 
     // ── Manager change ──
     if (dto.managerId !== undefined) {
@@ -242,8 +262,7 @@ export class ProjectsService {
       }
       return saved;
     }
-
-    return this.projectRepo.save(project);
+return this.projectRepo.save(project);
   }
 
   // ── Delete project (soft) ──
@@ -328,8 +347,7 @@ export class ProjectsService {
     await this.memberRepo.delete({ projectId, userId });
     return { message: 'Member removed' };
   }
-
-  // ── Get project tasks ──
+ // ── Get project tasks ──
   async getProjectTasks(projectId: string) {
     return this.projectRepo.query(`
       SELECT t.*,
