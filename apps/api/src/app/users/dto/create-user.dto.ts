@@ -30,4 +30,9 @@ export class CreateUserDto {
   @IsOptional()
   @IsUUID()
   departmentId?: string;
+
+  @ApiProperty({ example: 'uuid-of-manager', required: false, description: 'The user this person reports to (Reporting Manager).' })
+  @IsOptional()
+  @IsUUID()
+  managerId?: string;
 }

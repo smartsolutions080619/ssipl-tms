@@ -24,6 +24,11 @@ export class UpdateUserDto {
   @IsOptional()
   departmentId?: string | null;
 
+  @ApiProperty({ required: false, description: 'The user this person reports to (Reporting Manager). Null clears it.' })
+  @IsOptional()
+  @IsUUID()
+  managerId?: string | null;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsBoolean()

@@ -31,7 +31,7 @@ export class UsersService {
       where: { isActive: true },
       select: {
         id: true, email: true, firstName: true, lastName: true,
-        roleId: true, departmentId: true, createdAt: true, status: true,
+        roleId: true, departmentId: true, managerId: true, createdAt: true, status: true,
       },
     });
 
@@ -69,7 +69,7 @@ export class UsersService {
       where: { id, isActive: true },
       select: {
         id: true, email: true, firstName: true, lastName: true,
-        roleId: true, departmentId: true, createdAt: true, status: true,
+        roleId: true, departmentId: true, managerId: true, createdAt: true, status: true,
       },
     });
     if (!user) throw new NotFoundException(`User with id ${id} not found`);
@@ -183,6 +183,7 @@ export class UsersService {
       email: dto.email, passwordHash,
       firstName: dto.firstName, lastName: dto.lastName,
       roleId: dto.roleId, departmentId: dto.departmentId,
+      managerId: dto.managerId || null,
       status: UserStatus.ACTIVE,
       isActive: true,
     });
@@ -196,7 +197,7 @@ export class UsersService {
       );
     }
 
-    return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, roleId: user.roleId, departmentId: user.departmentId };
+    return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, roleId: user.roleId, departmentId: user.departmentId, managerId: user.managerId };
   }
 
   async update(id: string, dto: UpdateUserDto) {
@@ -212,7 +213,7 @@ export class UsersService {
       );
     }
 
-    return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, roleId: user.roleId, departmentId: user.departmentId, isActive: user.isActive };
+    return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, roleId: user.roleId, departmentId: user.departmentId, managerId: user.managerId, isActive: user.isActive };
   }
 
   async remove(id: string) {
@@ -237,8 +238,11 @@ export class UsersService {
     const [user] = await this.userRepo.query(
       `SELECT u.id, u.email, u.first_name AS "firstName", u.last_name AS "lastName",
               u.role_id AS "roleId", u.department_id AS "departmentId",
+              u.manager_id AS "managerId",
+              m.first_name AS "managerFirstName", m.last_name AS "managerLastName",
               u.status, u.is_active AS "isActive", u.avatar, u.created_at AS "createdAt"
        FROM tenant_ssipl.users u
+       LEFT JOIN tenant_ssipl.users m ON m.id::text = u.manager_id::text
        WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [userId]
     );

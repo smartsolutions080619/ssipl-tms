@@ -41,6 +41,9 @@ export class User {
   @Column({ name: 'department_id', nullable: true })
   departmentId!: string;
 
+  @Column({ name: 'manager_id', nullable: true })
+  managerId!: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
