@@ -1,3 +1,4 @@
+import * as dns from 'dns';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app/app.module';
 import { ValidationPipe } from '@nestjs/common';
@@ -7,6 +8,13 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { DataSource } from 'typeorm';
 import helmet from 'helmet';
 import compression = require('compression');
+
+// ── Prefer IPv4 for all outbound DNS lookups ──
+// Railway containers have no outbound IPv6 route, but Node can still
+// resolve hosts (e.g. smtp.gmail.com) to an IPv6 (AAAA) address first,
+// causing ENETUNREACH on anything that connects out (mail, webhooks,
+// etc.). This makes Node try A (IPv4) records first, app-wide.
+dns.setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
