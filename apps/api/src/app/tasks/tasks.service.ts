@@ -227,6 +227,16 @@ export class TasksService {
       throw new BadRequestException('Please assign this task to someone — Admins cannot leave a task unassigned.');
     }
 
+    // The date picker already blocks past dates client-side, but that's just
+    // UI — re-check here since dueDate can be sent directly via the API.
+    if (dto.dueDate) {
+      const todayUtcMidnight = new Date();
+      todayUtcMidnight.setUTCHours(0, 0, 0, 0);
+      if (new Date(dto.dueDate) < todayUtcMidnight) {
+        throw new BadRequestException('Due date cannot be in the past.');
+      }
+    }
+
     if (dto.parentTaskId) {
       await this.checkSubTaskDepth(dto.parentTaskId, 1);
     }

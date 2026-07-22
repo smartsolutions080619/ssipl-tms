@@ -128,6 +128,16 @@ if (!project) throw new NotFoundException('Project not found');
     managerId?: string;
   }, createdBy: string) {
 
+    // The date picker already blocks past dates client-side, but that's just
+    // UI — re-check here since startDate can be sent directly via the API.
+    if (dto.startDate) {
+      const todayUtcMidnight = new Date();
+      todayUtcMidnight.setUTCHours(0, 0, 0, 0);
+      if (new Date(dto.startDate) < todayUtcMidnight) {
+        throw new BadRequestException('Start date cannot be in the past.');
+      }
+    }
+
     // Auto-generate the project code unless one was explicitly provided
     // (kept optional for backward-compat, but the UI no longer asks for it).
     const projectCode = dto.projectCode?.trim() || await this.generateProjectCode();
