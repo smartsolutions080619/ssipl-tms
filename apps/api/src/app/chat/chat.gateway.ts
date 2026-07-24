@@ -461,4 +461,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.dataSource.query(`DELETE FROM tenant_ssipl.chat_rooms WHERE id = $1`, [roomId]);
     await this.getRooms(client);
   }
+
+  // ── Delete Channel (Global Admin only) ──
+  // Channels are broadcast rooms visible to everyone regardless of
+  // chat_room_members — same authorization model as create_channel (global
+  // role, not per-room role) and broadcast to every connected client (not
+  // just this room's socket.io members) so no one's sidebar goes stale.
+  @SubscribeMessage('delete_channel')
+  async deleteChannel(@ConnectedSocket() client: Socket, @MessageBody() roomId: string) {
+    const role = (client.data.user?.role || '').toLowerCase();
+    if (role !== 'admin') {
+      client.emit('error', { message: 'Only Admins can delete broadcast channels' });
+      return;
+    }
+
+    const [room] = await this.dataSource.query(
+      `SELECT type FROM tenant_ssipl.chat_rooms WHERE id = $1`,
+      [roomId]
+    );
+    if (!room || room.type !== 'channel') {
+      client.emit('error', { message: 'Channel not found' });
+      return;
+    }
+
+    this.server.emit('channel_deleted', { roomId });
+    await this.dataSource.query(`DELETE FROM tenant_ssipl.chat_messages WHERE room_id = $1`, [roomId]);
+    await this.dataSource.query(`DELETE FROM tenant_ssipl.chat_room_members WHERE room_id = $1`, [roomId]);
+    await this.dataSource.query(`DELETE FROM tenant_ssipl.chat_rooms WHERE id = $1`, [roomId]);
+  }
 }
