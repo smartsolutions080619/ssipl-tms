@@ -97,6 +97,7 @@ export class RecurringTaskService {
     switch (freq) {
       case RecurrenceFrequency.DAILY:       d.setDate(d.getDate() + 1);      break;
       case RecurrenceFrequency.WEEKLY:      d.setDate(d.getDate() + 7);      break;
+      case RecurrenceFrequency.FORTNIGHTLY: d.setDate(d.getDate() + 14);     break;
       case RecurrenceFrequency.MONTHLY:     d.setMonth(d.getMonth() + 1);    break;
       case RecurrenceFrequency.QUARTERLY:   d.setMonth(d.getMonth() + 3);    break;
       case RecurrenceFrequency.HALF_YEARLY: d.setMonth(d.getMonth() + 6);    break;
@@ -112,6 +113,7 @@ export class RecurringTaskService {
     switch (template.recurrenceFrequency) {
       case RecurrenceFrequency.DAILY:       next.setDate(next.getDate() + 1);      break;
       case RecurrenceFrequency.WEEKLY:      next.setDate(next.getDate() + 7);      break;
+      case RecurrenceFrequency.FORTNIGHTLY: next.setDate(next.getDate() + 14);     break;
       case RecurrenceFrequency.MONTHLY:     next.setMonth(next.getMonth() + 1);    break;
       case RecurrenceFrequency.QUARTERLY:   next.setMonth(next.getMonth() + 3);    break;
       case RecurrenceFrequency.HALF_YEARLY: next.setMonth(next.getMonth() + 6);    break;
@@ -122,7 +124,7 @@ export class RecurringTaskService {
 
   private freqLabel(freq: RecurrenceFrequency): string {
     const map: Record<RecurrenceFrequency, string> = {
-      DAILY: 'Daily', WEEKLY: 'Weekly', MONTHLY: 'Monthly',
+      DAILY: 'Daily', WEEKLY: 'Weekly', FORTNIGHTLY: 'Fortnightly', MONTHLY: 'Monthly',
       QUARTERLY: 'Quarterly', HALF_YEARLY: 'Half-yearly', YEARLY: 'Yearly',
     };
     return map[freq] || freq;

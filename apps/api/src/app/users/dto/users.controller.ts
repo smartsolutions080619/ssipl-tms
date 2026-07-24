@@ -75,8 +75,8 @@ export class UsersController {
   @Patch(':id/approve')
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Approve a pending user' })
-  async approve(@Param('id') id: string, @Body() body: { roleId: string; departmentId?: string }) {
-    return this.usersService.approve(id, body.roleId, body.departmentId);
+  async approve(@Param('id') id: string, @Body() body: { roleId: string; departmentId?: string; managerId?: string }) {
+    return this.usersService.approve(id, body.roleId, body.departmentId, body.managerId);
   }
 
   @Patch(':id/reject')

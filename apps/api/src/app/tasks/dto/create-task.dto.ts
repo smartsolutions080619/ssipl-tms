@@ -7,6 +7,7 @@ import { TaskPriority, TaskType } from '../task.entity';
 export enum RecurrenceFrequency {
   DAILY       = 'DAILY',
   WEEKLY      = 'WEEKLY',
+  FORTNIGHTLY = 'FORTNIGHTLY',
   MONTHLY     = 'MONTHLY',
   QUARTERLY   = 'QUARTERLY',
   HALF_YEARLY = 'HALF_YEARLY',

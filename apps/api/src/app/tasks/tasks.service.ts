@@ -606,6 +606,7 @@ export class TasksService {
     switch (freq) {
       case 'DAILY':       d.setDate(d.getDate() + 1);       break;
       case 'WEEKLY':      d.setDate(d.getDate() + 7);       break;
+      case 'FORTNIGHTLY': d.setDate(d.getDate() + 14);      break;
       case 'MONTHLY':     d.setMonth(d.getMonth() + 1);     break;
       case 'QUARTERLY':   d.setMonth(d.getMonth() + 3);     break;
       case 'HALF_YEARLY': d.setMonth(d.getMonth() + 6);     break;

@@ -122,7 +122,7 @@ export class UsersService {
   }
 
   // ── Approve pending user ──
-  async approve(id: string, roleId: string, departmentId?: string) {
+  async approve(id: string, roleId: string, departmentId?: string, managerId?: string) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`User ${id} not found`);
     if (user.status !== UserStatus.PENDING)
@@ -132,6 +132,7 @@ export class UsersService {
     user.isActive = true;
     user.roleId   = roleId;
     if (departmentId) user.departmentId = departmentId;
+    if (managerId) user.managerId = managerId;
     await this.userRepo.save(user);
 
     if (departmentId) {

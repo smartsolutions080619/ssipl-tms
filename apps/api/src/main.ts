@@ -54,13 +54,7 @@ async function bootstrap() {
     .build();
   SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
 
-  // ── DB identity log ──
-  // Prints exactly which physical database this running process is talking
-  // to (no credentials). Compare this against whatever pgAdmin/Railway's
-  // Query tab reports — if they don't match, the app and your manual
-  // checks are hitting two different databases, which is the classic cause
-  // of "I added the column and confirmed it exists, but the app still says
-  // it doesn't."
+
   try {
     const dataSource = app.get(DataSource);
     const [identity] = await dataSource.query(
