@@ -116,6 +116,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.leave(roomId);
   }
 
+  // ── Subscribe to rooms without marking them read ──
+  // join_room means "the user is actively looking at this conversation right
+  // now" — it marks the room read as a side effect, which is correct there.
+  // But a background listener (e.g. ChatToast, which stays connected on every
+  // page to show toast popups and keep the sidebar's unread badge live) only
+  // needs the socket.io room subscription so it can receive `new_message`
+  // broadcasts — it must never mark anything as read. Using join_room for
+  // that purpose was silently zeroing every room's unread count the moment
+  // the app loaded or reconnected.
+  @SubscribeMessage('subscribe_rooms')
+  subscribeRooms(@ConnectedSocket() client: Socket, @MessageBody() roomIds: string[]) {
+    (roomIds || []).forEach(id => client.join(id));
+  }
+
   // ── Send message ──
   @SubscribeMessage('send_message')
   async sendMessage(@ConnectedSocket() client: Socket, @MessageBody() data: {

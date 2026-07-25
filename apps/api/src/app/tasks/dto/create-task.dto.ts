@@ -2,7 +2,6 @@ import {
   IsString, IsOptional, IsEnum, IsUUID, IsDateString, IsBoolean,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { TaskPriority, TaskType } from '../task.entity';
 
 export enum RecurrenceFrequency {
   DAILY       = 'DAILY',
@@ -24,15 +23,15 @@ export class CreateTaskDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ enum: TaskPriority, required: false })
+  @ApiProperty({ required: false, description: 'Priority key — admin-configurable, not a fixed enum.' })
   @IsOptional()
-  @IsEnum(TaskPriority)
-  priority?: TaskPriority;
+  @IsString()
+  priority?: string;
 
-  @ApiProperty({ enum: TaskType, required: false })
+  @ApiProperty({ required: false, description: 'Type key — admin-configurable, not a fixed enum.' })
   @IsOptional()
-  @IsEnum(TaskType)
-  type?: TaskType;
+  @IsString()
+  type?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
