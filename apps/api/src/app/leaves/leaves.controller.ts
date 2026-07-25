@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   Controller, Get, Post, Patch, Body,
   Param, Query, UseGuards,
@@ -37,6 +38,7 @@ export class LeavesController {
 
   @Get('balance')
   @ApiOperation({ summary: 'Get my leave balance' })
+   
   async getBalance(@CurrentUser() user: any) {
     return this.leavesService.getBalance(user.userId);
   }
@@ -45,6 +47,19 @@ export class LeavesController {
   @ApiOperation({ summary: 'Cancel my leave request' })
   async cancel(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leavesService.cancel(id, user.userId);
+  }
+
+  // ── Org-wide calendar visibility ──
+  // Deliberately has NO @Roles() restriction — every logged-in user can
+  // see who's on approved leave this month/year, exactly like holidays.
+  // `month` optional: pass it for a single month (header calendar
+  // dropdown), omit it for the whole year (Holidays page).
+  @Get('calendar')
+  @ApiOperation({ summary: "Get everyone's approved leaves for a month/year (visible to all)" })
+  async getCalendarLeaves(@Query('year') year?: string, @Query('month') month?: string) {
+    const y = year ? parseInt(year, 10) : new Date().getFullYear();
+    const m = month ? parseInt(month, 10) : undefined;
+    return this.leavesService.findApprovedForCalendar(y, m);
   }
 
   // ── Admin endpoints ──

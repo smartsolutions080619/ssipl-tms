@@ -159,6 +159,31 @@ export class LeavesService {
     return saved;
   }
 
+  // ── Get all APPROVED leaves for a calendar month/year — org-wide,
+  //    open to every authenticated user (no @Roles restriction), the
+  //    same way holidays are visible to everyone. Pass `month` to scope
+  //    to a single month (used by the header calendar dropdown), or omit
+  //    it to get the whole year (used by the Holidays page).
+  async findApprovedForCalendar(year: number, month?: number) {
+    const rangeStart = month
+      ? `${year}-${String(month).padStart(2, '0')}-01`
+      : `${year}-01-01`;
+    const interval = month ? '1 month' : '1 year';
+
+    return this.leaveRepo.query(
+      `SELECT lr.id, lr.user_id AS "userId", lr.leave_type AS "leaveType",
+              lr.from_date AS "fromDate", lr.to_date AS "toDate", lr.total_days AS "totalDays",
+              u.first_name AS "firstName", u.last_name AS "lastName", u.avatar
+       FROM leave_requests lr
+       LEFT JOIN users u ON u.id::text = lr.user_id::text
+       WHERE lr.status = 'APPROVED'
+         AND lr.deleted_at IS NULL
+         AND (lr.from_date, lr.to_date) OVERLAPS ($1::date, $1::date + $2::interval)
+       ORDER BY lr.from_date ASC`,
+      [rangeStart, interval]
+    );
+  }
+
   // ── Get all leave requests (admin) ──
   async findAll(filters?: { status?: string; userId?: string; year?: number }) {
     let query = `
@@ -306,4 +331,4 @@ export class LeavesService {
       [year]
     );
   }
-}   
+}
