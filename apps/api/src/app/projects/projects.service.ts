@@ -50,7 +50,10 @@ export class ProjectsService {
 
   // ── Get all projects (with member count + task stats + manager) ──
   async findAll(userId: string, role: string) {
-    const isAdmin = role?.toLowerCase() === 'admin';
+    // CEO oversees every project company-wide, same as Admin, even for
+    // projects they were never explicitly added to as a member.
+    const roleLower = role?.toLowerCase() || '';
+    const isAdmin = roleLower === 'admin' || roleLower === 'ceo';
 
     let query = `
       SELECT
