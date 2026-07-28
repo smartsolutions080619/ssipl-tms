@@ -70,7 +70,14 @@ export class RecurringTaskService {
       reporterId:        template.reporterId,
       projectId:         template.projectId,
       status:            TaskStatus.TODO,
-      isRecurring:       false,        // spawned copies are NOT templates
+      // Spawned copies carry the recurrence metadata forward so the
+      // Daily/Weekly/... badge keeps showing on every generated occurrence,
+      // not just the original template. They're still not templates
+      // themselves — recurrenceParentId (not isRecurring) is what the spawn
+      // cron's query uses to tell a template apart from a spawned copy, so
+      // this doesn't cause a spawned copy to spawn its own children.
+      isRecurring:        true,
+      recurrenceFrequency: template.recurrenceFrequency,
       recurrenceParentId: template.id, // points back to original
       dueDate,
     });
