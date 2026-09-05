@@ -52,11 +52,16 @@ export class ActivityLogService {
         target.last_name  AS target_last_name
       FROM tenant_ssipl.activity_logs log
       LEFT JOIN tenant_ssipl.users actor  ON actor.id  = log.user_id
-      LEFT JOIN tenant_ssipl.tasks t      ON t.id      = log.task_id
+      LEFT JOIN tenant_ssipl.tasks t      ON t.id      = log.task_id AND t.deleted_at IS NULL
       LEFT JOIN tenant_ssipl.users target ON target.id = NULLIF(log.new_value->>'assigneeId', '')::uuid
-      ${canViewAll ? '' : 'WHERE log.user_id = $1'}
+      -- Drop entries whose task was soft-deleted (t.id comes back null once
+      -- the join's deleted_at check excludes it) — otherwise the feed keeps
+      -- showing history for, and dead links to, tasks that no longer exist.
+      -- General (non-task) log rows are untouched.
+      WHERE (log.task_id IS NULL OR t.id IS NOT NULL)
+      ${canViewAll ? '' : 'AND log.user_id = $1'}
       ORDER BY log.created_at DESC
-      LIMIT ${canViewAll ? 50 : 50}
+      LIMIT 50
       `,
       canViewAll ? [] : [userId],
     );
@@ -75,6 +80,15 @@ export class ActivityLogService {
       targetFirstName: r.target_first_name,
       targetLastName:  r.target_last_name,
     }));
+  }
+
+  // ── Clear every activity log entry (admin) ──
+  //    Used by the Dashboard's "Clear All" control on Recent Activity.
+  //    This is log data, not a business record, so it's a hard delete
+  //    rather than the soft-delete pattern used for tasks/leaves/users.
+  async clearAll() {
+    await this.activityRepo.createQueryBuilder().delete().from(ActivityLog).execute();
+    return { message: 'Activity log cleared' };
   }
 
   async getAuditLog(filters: {

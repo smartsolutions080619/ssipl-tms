@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
-  Controller, Get, Post, Patch, Body,
+  Controller, Get, Post, Patch, Delete, Body,
   Param, Query, UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -98,6 +98,13 @@ export class LeavesController {
     @Body('reason') reason: string,
   ) {
     return this.leavesService.reject(id, user.userId, reason);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Delete a non-approved leave request (admin)' })
+  async delete(@Param('id') id: string) {
+    return this.leavesService.delete(id);
   }
 
   @Post('carry-forward/:year')

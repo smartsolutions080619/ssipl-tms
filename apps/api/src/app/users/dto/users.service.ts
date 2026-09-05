@@ -217,12 +217,26 @@ export class UsersService {
     return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, roleId: user.roleId, departmentId: user.departmentId, managerId: user.managerId, isActive: user.isActive };
   }
 
+  // ── Permanently delete a user (admin "Delete" button) ──
+  //    A true hard delete, not a soft one — the old isActive/deletedAt
+  //    flip left the row (and its unique email) sitting in the table
+  //    forever, so re-registering that same email as a new user always
+  //    hit a "User with this email already exists" conflict. Nothing
+  //    else in this schema has a real FK onto users (every user_id
+  //    column elsewhere is a bare uuid), so removing the row is safe —
+  //    historical tasks/leaves/comments/activity just keep the dangling
+  //    id, which their existing LEFT JOINs already render as blank.
   async remove(id: string) {
-    const user = await this.findOne(id);
-    user.isActive = false;
-    user.deletedAt = new Date();
-    await this.userRepo.save(user);
-    return { message: `User ${user.email} deactivated successfully` };
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException(`User with id ${id} not found`);
+
+    await this.userRepo.query(
+      `DELETE FROM tenant_ssipl.user_departments WHERE user_id = $1`,
+      [id]
+    );
+    await this.userRepo.delete(id);
+
+    return { message: `User ${user.email} permanently deleted` };
   }
 
   async getProfile(userId: string) { return this.findOne(userId); }

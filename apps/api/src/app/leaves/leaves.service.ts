@@ -319,6 +319,28 @@ export class LeavesService {
     return { message: `Carry forward processed for ${balances.length} employees` };
   }
 
+  // ── Delete leave request (admin) ──
+  //    Any status can be deleted, including APPROVED. An approved
+  //    request has already deducted from the balance ledger (see
+  //    approve() above), so deleting one restores that balance first —
+  //    the same restore cancel() does — to keep the ledger correct.
+  async delete(leaveId: string) {
+    const leave = await this.leaveRepo.findOne({ where: { id: leaveId } });
+    if (!leave || leave.deletedAt) throw new NotFoundException('Leave request not found');
+
+    if (leave.status === LeaveStatus.APPROVED && leave.leaveType !== LeaveType.LWP) {
+      const year    = new Date(leave.fromDate).getFullYear();
+      const balance = await this.getOrCreateBalance(leave.userId, year);
+      const key     = leave.leaveType.toLowerCase() as 'cl' | 'sl' | 'pl';
+      (balance as any)[`${key}Used`] = Math.max(0, Number((balance as any)[`${key}Used`]) - leave.totalDays);
+      await this.balanceRepo.save(balance);
+    }
+
+    leave.deletedAt = new Date();
+    await this.leaveRepo.save(leave);
+    return { message: 'Leave request deleted' };
+  }
+
   // ── Get all employees' balance (admin) ──
   async getAllBalances() {
     const year = new Date().getFullYear();

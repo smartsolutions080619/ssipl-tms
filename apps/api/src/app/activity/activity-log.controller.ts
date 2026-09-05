@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Delete, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ActivityLogService } from './activity-log.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
@@ -26,6 +26,13 @@ export class ActivityLogController {
   async getMyActivity(@CurrentUser() user: any) {
     const canViewAll = user.role?.toLowerCase() === 'admin' || (user.permissions || []).includes('task:view_all');
     return this.activityLogService.getUserActivity(user.userId, canViewAll);
+  }
+
+  @Delete()
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Admin — clear all activity log entries' })
+  async clearAll() {
+    return this.activityLogService.clearAll();
   }
 
   @Get('audit')
