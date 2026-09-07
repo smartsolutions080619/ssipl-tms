@@ -85,6 +85,12 @@ export class LeavesService {
     const existing = await this.typeRepo.findOne({ where: { code } });
     if (existing) throw new BadRequestException(`A leave type with code "${code}" already exists`);
 
+    const annualDays      = dto.annualDays ?? 0;
+    const maxCarryForward = dto.maxCarryForward ?? 0;
+    if ((dto.carryForwardEnabled ?? false) && maxCarryForward > annualDays) {
+      throw new BadRequestException('Max carry forward cannot exceed annual days');
+    }
+
     const { max } = await this.typeRepo
       .createQueryBuilder('t')
       .select('MAX(t.sortOrder)', 'max')
@@ -96,10 +102,10 @@ export class LeavesService {
       emoji: dto.emoji || null,
       color: dto.color || 'var(--brand-primary)',
       description: dto.description || null,
-      annualDays: dto.annualDays ?? 0,
+      annualDays,
       proRata: dto.proRata ?? true,
       carryForwardEnabled: dto.carryForwardEnabled ?? false,
-      maxCarryForward: dto.maxCarryForward ?? 0,
+      maxCarryForward,
       isUnlimited: dto.isUnlimited ?? false,
       sortOrder: (Number(max) || 0) + 1,
       isActive: true,
@@ -127,6 +133,10 @@ export class LeavesService {
     if (dto.maxCarryForward !== undefined)       type.maxCarryForward = dto.maxCarryForward;
     if (dto.isUnlimited !== undefined)           type.isUnlimited = dto.isUnlimited;
     if (dto.sortOrder !== undefined)             type.sortOrder = dto.sortOrder;
+
+    if (type.carryForwardEnabled && Number(type.maxCarryForward) > Number(type.annualDays)) {
+      throw new BadRequestException('Max carry forward cannot exceed annual days');
+    }
 
     return this.typeRepo.save(type);
   }
