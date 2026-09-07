@@ -14,6 +14,7 @@ import {
     STATUS_CHANGED = 'STATUS_CHANGED',
     COMMENT_ADDED = 'COMMENT_ADDED',
     COMMENT_DELETED = 'COMMENT_DELETED',
+    LEAVE_BALANCE_ADJUSTED = 'LEAVE_BALANCE_ADJUSTED',
   }
   
   @Entity({ name: 'activity_logs' })

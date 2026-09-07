@@ -1,18 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   Injectable, NotFoundException,
-  BadRequestException, 
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
-import { LeaveRequest, LeaveType, LeaveStatus } from './leave-request.entity';
+import { LeaveRequest, LeaveStatus } from './leave-request.entity';
 import { LeaveBalance } from './leave-balance.entity';
+import { LeaveType } from './leave-type.entity';
 import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
-
-// Annual entitlements
-const ANNUAL = { CL: 12, SL: 12, PL: 15, LWP: 999 };
-const PL_MAX_CARRY = 30;
+import { ActivityLogService } from '../activity/activity-log.service';
+import { ActivityAction } from '../activity/activity-log.entity';
 
 @Injectable()
 export class LeavesService {
@@ -21,8 +20,11 @@ export class LeavesService {
     private readonly leaveRepo: Repository<LeaveRequest>,
     @InjectRepository(LeaveBalance)
     private readonly balanceRepo: Repository<LeaveBalance>,
+    @InjectRepository(LeaveType)
+    private readonly typeRepo: Repository<LeaveType>,
     private readonly mailService: MailService,
     private readonly notifService: NotificationsService,
+    private readonly activityLogService: ActivityLogService,
   ) {}
 
   // ── Calculate business days between two dates ──
@@ -46,36 +48,6 @@ export class LeavesService {
     return Math.round(proRated * 2) / 2; // round to 0.5
   }
 
-  // ── Get or create balance for user+year ──
-  async getOrCreateBalance(userId: string, year: number, joiningDate?: Date): Promise<LeaveBalance> {
-    let balance = await this.balanceRepo.findOne({ where: { userId, year } });
-    if (balance) return balance;
-
-    const joining = joiningDate || new Date();
-    balance = this.balanceRepo.create({
-      userId, year,
-      clTotal:   this.proRata(ANNUAL.CL, joining, year),
-      slTotal:   this.proRata(ANNUAL.SL, joining, year),
-      plTotal:   this.proRata(ANNUAL.PL, joining, year),
-      clUsed: 0, slUsed: 0, plUsed: 0, plCarried: 0,
-    });
-    return this.balanceRepo.save(balance);
-  }
-
-  // ── Get user's leave balance ──
-  async getBalance(userId: string) {
-    const year    = new Date().getFullYear();
-    const balance = await this.getOrCreateBalance(userId, year);
-
-    return {
-      year,
-      CL: { total: Number(balance.clTotal), used: Number(balance.clUsed), remaining: Number(balance.clTotal) - Number(balance.clUsed), carryForward: 0 },
-      SL: { total: Number(balance.slTotal), used: Number(balance.slUsed), remaining: Number(balance.slTotal) - Number(balance.slUsed), carryForward: 0 },
-      PL: { total: Number(balance.plTotal) + Number(balance.plCarried), used: Number(balance.plUsed), remaining: Number(balance.plTotal) + Number(balance.plCarried) - Number(balance.plUsed), carryForward: Number(balance.plCarried) },
-      LWP: { total: 999, used: 0, remaining: 999, carryForward: 0 },
-    };
-  }
-
   // ── Fire-and-forget helper: runs notifications/emails in the
   //    background without making the caller wait. Any failure here
   //    is logged but never blocks or fails the main request. ──
@@ -85,10 +57,181 @@ export class LeavesService {
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // Leave Types (admin-managed)
+  // ═══════════════════════════════════════════════════════════════
+
+  // ── Active types only — the apply-leave form, balance cards, and
+  //    everything an ordinary employee sees. ──
+  async getActiveLeaveTypes() {
+    return this.typeRepo.find({ where: { isActive: true }, order: { sortOrder: 'ASC' } });
+  }
+
+  // ── Every type, including deactivated ones — the Admin → Leave
+  //    Management screen. ──
+  async getAllLeaveTypesAdmin() {
+    return this.typeRepo.find({ order: { sortOrder: 'ASC' } });
+  }
+
+  async createLeaveType(dto: {
+    code: string; label: string; emoji?: string; color?: string; description?: string;
+    annualDays?: number; proRata?: boolean; carryForwardEnabled?: boolean;
+    maxCarryForward?: number; isUnlimited?: boolean;
+  }) {
+    if (!dto.code?.trim()) throw new BadRequestException('Code is required');
+    if (!dto.label?.trim()) throw new BadRequestException('Label is required');
+
+    const code = dto.code.toUpperCase().trim().replace(/\s+/g, '_');
+    const existing = await this.typeRepo.findOne({ where: { code } });
+    if (existing) throw new BadRequestException(`A leave type with code "${code}" already exists`);
+
+    const { max } = await this.typeRepo
+      .createQueryBuilder('t')
+      .select('MAX(t.sortOrder)', 'max')
+      .getRawOne();
+
+    const type = this.typeRepo.create({
+      code,
+      label: dto.label.trim(),
+      emoji: dto.emoji || null,
+      color: dto.color || 'var(--brand-primary)',
+      description: dto.description || null,
+      annualDays: dto.annualDays ?? 0,
+      proRata: dto.proRata ?? true,
+      carryForwardEnabled: dto.carryForwardEnabled ?? false,
+      maxCarryForward: dto.maxCarryForward ?? 0,
+      isUnlimited: dto.isUnlimited ?? false,
+      sortOrder: (Number(max) || 0) + 1,
+      isActive: true,
+    });
+    return this.typeRepo.save(type);
+  }
+
+  async updateLeaveType(id: string, dto: {
+    label?: string; emoji?: string; color?: string; description?: string;
+    annualDays?: number; proRata?: boolean; carryForwardEnabled?: boolean;
+    maxCarryForward?: number; isUnlimited?: boolean; sortOrder?: number;
+  }) {
+    const type = await this.typeRepo.findOne({ where: { id } });
+    if (!type) throw new NotFoundException('Leave type not found');
+
+    // code is intentionally not editable here — past leave_requests
+    // reference it by code, and silently renaming it would orphan them.
+    if (dto.label !== undefined)                type.label = dto.label.trim();
+    if (dto.emoji !== undefined)                 type.emoji = dto.emoji;
+    if (dto.color !== undefined)                 type.color = dto.color;
+    if (dto.description !== undefined)           type.description = dto.description;
+    if (dto.annualDays !== undefined)            type.annualDays = dto.annualDays;
+    if (dto.proRata !== undefined)               type.proRata = dto.proRata;
+    if (dto.carryForwardEnabled !== undefined)   type.carryForwardEnabled = dto.carryForwardEnabled;
+    if (dto.maxCarryForward !== undefined)       type.maxCarryForward = dto.maxCarryForward;
+    if (dto.isUnlimited !== undefined)           type.isUnlimited = dto.isUnlimited;
+    if (dto.sortOrder !== undefined)             type.sortOrder = dto.sortOrder;
+
+    return this.typeRepo.save(type);
+  }
+
+  async setLeaveTypeActive(id: string, isActive: boolean) {
+    const type = await this.typeRepo.findOne({ where: { id } });
+    if (!type) throw new NotFoundException('Leave type not found');
+    type.isActive = isActive;
+    await this.typeRepo.save(type);
+    return { message: `${type.label} ${isActive ? 'activated' : 'deactivated'}` };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Balances
+  // ═══════════════════════════════════════════════════════════════
+
+  // ── Get or create a user's balance row for one leave type + year.
+  //    Defaults the total to the type's org-wide annualDays, pro-rated
+  //    for the joining date when the type has proRata enabled. ──
+  async getOrCreateBalance(userId: string, leaveTypeId: string, year: number, joiningDate?: Date): Promise<LeaveBalance> {
+    let balance = await this.balanceRepo.findOne({ where: { userId, leaveTypeId, year } });
+    if (balance) return balance;
+
+    const type = await this.typeRepo.findOne({ where: { id: leaveTypeId } });
+    const annual = type ? Number(type.annualDays) : 0;
+    const total  = type?.proRata ? this.proRata(annual, joiningDate || new Date(), year) : annual;
+
+    balance = this.balanceRepo.create({ userId, leaveTypeId, year, total, used: 0, carried: 0 });
+    return this.balanceRepo.save(balance);
+  }
+
+  // ── Compute every active type's balance for one user+year, in the
+  //    { CODE: { total, used, remaining, carryForward } } shape both the
+  //    employee's own balance card and the admin override panel use. ──
+  private async computeBalances(userId: string, year: number) {
+    const types = await this.getActiveLeaveTypes();
+    const result: Record<string, { total: number; used: number; remaining: number; carryForward: number }> = {};
+
+    for (const type of types) {
+      if (type.isUnlimited) {
+        result[type.code] = { total: 999, used: 0, remaining: 999, carryForward: 0 };
+        continue;
+      }
+      const balance = await this.getOrCreateBalance(userId, type.id, year);
+      const total = Number(balance.total) + Number(balance.carried);
+      result[type.code] = {
+        total,
+        used: Number(balance.used),
+        remaining: total - Number(balance.used),
+        carryForward: Number(balance.carried),
+      };
+    }
+    return result;
+  }
+
+  // ── Get user's own leave balance (current year) ──
+  async getBalance(userId: string) {
+    const year = new Date().getFullYear();
+    return { year, ...(await this.computeBalances(userId, year)) };
+  }
+
+  // ── Admin — any user's balance, any year (defaults to current) ──
+  async getUserBalance(userId: string, year?: number) {
+    const y = year || new Date().getFullYear();
+    return { userId, year: y, ...(await this.computeBalances(userId, y)) };
+  }
+
+  // ── Admin — directly override a user's total entitlement for one
+  //    type + year (e.g. a senior employee gets 20 CL instead of the
+  //    org default 12). Logged to the activity trail so there's a
+  //    record of who changed it and why. ──
+  async overrideBalance(adminId: string, userId: string, leaveTypeId: string, year: number, newTotal: number, reason?: string) {
+    if (newTotal < 0) throw new BadRequestException('Balance cannot be negative');
+
+    const type = await this.typeRepo.findOne({ where: { id: leaveTypeId } });
+    if (!type) throw new NotFoundException('Leave type not found');
+    if (type.isUnlimited) throw new BadRequestException(`${type.label} is unlimited and doesn't track a balance`);
+
+    const balance = await this.getOrCreateBalance(userId, leaveTypeId, year);
+    const previousTotal = Number(balance.total);
+    balance.total = newTotal;
+    await this.balanceRepo.save(balance);
+
+    await this.activityLogService.log(
+      adminId,
+      ActivityAction.LEAVE_BALANCE_ADJUSTED,
+      undefined,
+      { leaveTypeCode: type.code, leaveTypeLabel: type.label, previousTotal, year },
+      { leaveTypeCode: type.code, leaveTypeLabel: type.label, newTotal, year, reason: reason?.trim() || null, targetUserId: userId },
+    );
+
+    return { message: `${type.label} balance for ${year} updated to ${newTotal} days`, balance };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Leave Requests
+  // ═══════════════════════════════════════════════════════════════
+
   // ── Submit leave request ──
   async create(userId: string, dto: {
-    leaveType: LeaveType; fromDate: string; toDate: string; reason: string;
+    leaveType: string; fromDate: string; toDate: string; reason: string;
   }) {
+    const type = await this.typeRepo.findOne({ where: { code: dto.leaveType, isActive: true } });
+    if (!type) throw new BadRequestException(`Unknown or inactive leave type: ${dto.leaveType}`);
+
     const from      = new Date(dto.fromDate);
     const to        = new Date(dto.toDate);
     const totalDays = this.calcDays(from, to);
@@ -96,16 +239,13 @@ export class LeavesService {
     if (totalDays <= 0) throw new BadRequestException('Invalid date range — no working days selected');
     if (from < new Date(new Date().setHours(0,0,0,0))) throw new BadRequestException('Cannot apply leave for past dates');
 
-    // Check balance (not for LWP)
-    if (dto.leaveType !== LeaveType.LWP) {
-      const balance = await this.getOrCreateBalance(userId, from.getFullYear());
-      const key     = dto.leaveType.toLowerCase() as 'cl' | 'sl' | 'pl';
-      const total   = key === 'pl' ? Number(balance.plTotal) + Number(balance.plCarried) : Number((balance as any)[`${key}Total`]);
-      const used    = Number((balance as any)[`${key}Used`]);
-      const avail   = total - used;
+    // Check balance (not for unlimited types)
+    if (!type.isUnlimited) {
+      const balance = await this.getOrCreateBalance(userId, type.id, from.getFullYear());
+      const avail   = Number(balance.total) + Number(balance.carried) - Number(balance.used);
 
       if (totalDays > avail) {
-        throw new BadRequestException(`Insufficient ${dto.leaveType} balance. Available: ${avail} days, Requested: ${totalDays} days`);
+        throw new BadRequestException(`Insufficient ${type.label} balance. Available: ${avail} days, Requested: ${totalDays} days`);
       }
     }
 
@@ -120,7 +260,7 @@ export class LeavesService {
     if (overlap.length > 0) throw new BadRequestException('You already have a leave request overlapping these dates');
 
     const leave = this.leaveRepo.create({
-      userId, leaveType: dto.leaveType,
+      userId, leaveType: type.code,
       fromDate: from, toDate: to,
       totalDays, reason: dto.reason,
       status: LeaveStatus.PENDING,
@@ -145,13 +285,13 @@ export class LeavesService {
         await this.notifService.create(
           admin.id,
           'New Leave Request',
-          `${user.first_name} ${user.last_name} has requested ${totalDays} day(s) of ${dto.leaveType} leave (${dto.fromDate} to ${dto.toDate})`,
+          `${user.first_name} ${user.last_name} has requested ${totalDays} day(s) of ${type.code} leave (${dto.fromDate} to ${dto.toDate})`,
           { type: 'LEAVE_REQUEST', leaveId: saved.id },
         );
         await this.mailService.sendLeaveRequest(
           admin.email, admin.first_name,
           `${user.first_name} ${user.last_name}`, user.email,
-          dto.leaveType, dto.fromDate, dto.toDate, totalDays, dto.reason,
+          type.code, dto.fromDate, dto.toDate, totalDays, dto.reason,
         );
       }));
     });
@@ -223,24 +363,23 @@ export class LeavesService {
     leave.approvedAt = new Date();
     await this.leaveRepo.save(leave);
 
-    // Deduct balance (not for LWP)
-    if (leave.leaveType !== LeaveType.LWP) {
+    const type = await this.typeRepo.findOne({ where: { code: leave.leaveType } });
+    if (type && !type.isUnlimited) {
       const year    = new Date(leave.fromDate).getFullYear();
-      const balance = await this.getOrCreateBalance(leave.userId, year);
-      const key     = leave.leaveType.toLowerCase() as 'cl' | 'sl' | 'pl';
+      const balance = await this.getOrCreateBalance(leave.userId, type.id, year);
 
-      if (key === 'pl') {
-        // Deduct from carried first, then from main balance
+      if (type.carryForwardEnabled) {
+        // Deduct from carried-forward days first, then from this year's total.
         let remaining = leave.totalDays;
-        const carried = Number(balance.plCarried);
+        const carried = Number(balance.carried);
         if (carried > 0) {
           const deductFromCarried = Math.min(carried, remaining);
-          balance.plCarried = carried - deductFromCarried;
+          balance.carried = carried - deductFromCarried;
           remaining -= deductFromCarried;
         }
-        if (remaining > 0) balance.plUsed = Number(balance.plUsed) + remaining;
+        if (remaining > 0) balance.used = Number(balance.used) + remaining;
       } else {
-        (balance as any)[`${key}Used`] = Number((balance as any)[`${key}Used`]) + leave.totalDays;
+        balance.used = Number(balance.used) + leave.totalDays;
       }
       await this.balanceRepo.save(balance);
     }
@@ -287,36 +426,51 @@ export class LeavesService {
     return { message: 'Leave rejected', leave };
   }
 
+  // ── Restore the used-balance deduction for a leave that's being
+  //    cancelled or deleted after having been approved. Shared by
+  //    cancel() and delete() below. ──
+  private async restoreBalance(leave: LeaveRequest) {
+    const type = await this.typeRepo.findOne({ where: { code: leave.leaveType } });
+    if (!type || type.isUnlimited) return;
+
+    const year    = new Date(leave.fromDate).getFullYear();
+    const balance = await this.getOrCreateBalance(leave.userId, type.id, year);
+    balance.used  = Math.max(0, Number(balance.used) - leave.totalDays);
+    await this.balanceRepo.save(balance);
+  }
+
   // ── Cancel leave (by employee) ──
   async cancel(leaveId: string, userId: string) {
     const leave = await this.leaveRepo.findOne({ where: { id: leaveId, userId } });
     if (!leave) throw new NotFoundException('Leave request not found');
     if (!['PENDING','APPROVED'].includes(leave.status)) throw new BadRequestException('Cannot cancel this leave');
 
-    // If already approved — restore balance
-    if (leave.status === LeaveStatus.APPROVED && leave.leaveType !== LeaveType.LWP) {
-      const year    = new Date(leave.fromDate).getFullYear();
-      const balance = await this.getOrCreateBalance(leave.userId, year);
-      const key     = leave.leaveType.toLowerCase() as 'cl' | 'sl' | 'pl';
-      (balance as any)[`${key}Used`] = Math.max(0, Number((balance as any)[`${key}Used`]) - leave.totalDays);
-      await this.balanceRepo.save(balance);
-    }
+    if (leave.status === LeaveStatus.APPROVED) await this.restoreBalance(leave);
 
     leave.status = LeaveStatus.CANCELLED;
     await this.leaveRepo.save(leave);
     return { message: 'Leave cancelled successfully' };
   }
 
-  // ── Year-end carry forward (run on Jan 1) ──
+  // ── Year-end carry forward (run on Jan 1) — now type-driven: every
+  //    active leave type with carryForwardEnabled gets processed,
+  //    capped at that type's own maxCarryForward, instead of a single
+  //    PL-only hardcoded rule. ──
   async processCarryForward(year: number) {
-    const balances = await this.balanceRepo.find({ where: { year } });
-    for (const bal of balances) {
-      const plRemaining = Number(bal.plTotal) - Number(bal.plUsed) + Number(bal.plCarried);
-      const nextYearBal = await this.getOrCreateBalance(bal.userId, year + 1);
-      nextYearBal.plCarried = Math.min(plRemaining, PL_MAX_CARRY); // max 30 days carry
-      await this.balanceRepo.save(nextYearBal);
+    const carryTypes = await this.typeRepo.find({ where: { carryForwardEnabled: true, isActive: true } });
+    let processed = 0;
+
+    for (const type of carryTypes) {
+      const balances = await this.balanceRepo.find({ where: { leaveTypeId: type.id, year } });
+      for (const bal of balances) {
+        const remaining   = Number(bal.total) - Number(bal.used) + Number(bal.carried);
+        const nextYearBal = await this.getOrCreateBalance(bal.userId, type.id, year + 1);
+        nextYearBal.carried = Math.min(remaining, Number(type.maxCarryForward));
+        await this.balanceRepo.save(nextYearBal);
+        processed++;
+      }
     }
-    return { message: `Carry forward processed for ${balances.length} employees` };
+    return { message: `Carry forward processed for ${processed} balance record(s) across ${carryTypes.length} leave type(s)` };
   }
 
   // ── Delete leave request (admin) ──
@@ -328,29 +482,28 @@ export class LeavesService {
     const leave = await this.leaveRepo.findOne({ where: { id: leaveId } });
     if (!leave || leave.deletedAt) throw new NotFoundException('Leave request not found');
 
-    if (leave.status === LeaveStatus.APPROVED && leave.leaveType !== LeaveType.LWP) {
-      const year    = new Date(leave.fromDate).getFullYear();
-      const balance = await this.getOrCreateBalance(leave.userId, year);
-      const key     = leave.leaveType.toLowerCase() as 'cl' | 'sl' | 'pl';
-      (balance as any)[`${key}Used`] = Math.max(0, Number((balance as any)[`${key}Used`]) - leave.totalDays);
-      await this.balanceRepo.save(balance);
-    }
+    if (leave.status === LeaveStatus.APPROVED) await this.restoreBalance(leave);
 
     leave.deletedAt = new Date();
     await this.leaveRepo.save(leave);
     return { message: 'Leave request deleted' };
   }
 
-  // ── Get all employees' balance (admin) ──
+  // ── Get all employees' balances for the current year (admin overview) ──
   async getAllBalances() {
-    const year = new Date().getFullYear();
-    return this.balanceRepo.query(
-      `SELECT lb.*, u.first_name, u.last_name, u.email
-       FROM leave_balances lb
-       LEFT JOIN users u ON u.id::text = lb.user_id::text
-       WHERE lb.year = $1
+    const year  = new Date().getFullYear();
+    const users = await this.balanceRepo.query(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
+       FROM users u
+       INNER JOIN leave_balances lb ON lb.user_id::text = u.id::text AND lb.year = $1
+       WHERE u.deleted_at IS NULL
        ORDER BY u.first_name`,
       [year]
     );
+
+    return Promise.all(users.map(async (u: any) => ({
+      ...u,
+      balances: await this.computeBalances(u.id, year),
+    })));
   }
 }

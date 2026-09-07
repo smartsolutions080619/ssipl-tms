@@ -77,7 +77,25 @@ export class TasksService {
     const canViewDept = permissions.includes('task:view_department');
     const roleLower   = currentUser.role?.toLowerCase() || '';
 
-    if (canViewAll || roleLower === 'admin') {
+    // ── "All" departments on the Users page means org-wide task
+    //    visibility, same as task:view_all — a person assigned to every
+    //    department should see every employee's tasks, not just the
+    //    department-overlap subset canViewDept would otherwise compute
+    //    (which happens to equal "everyone" here, but only for roles
+    //    that already carry task:view_department; this makes it
+    //    unconditional on the department assignment alone). ──
+    let isInEveryDepartment = false;
+    if (!canViewAll && roleLower !== 'admin') {
+      const [{ total, mine }] = await this.taskRepo.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM departments) AS total,
+           (SELECT COUNT(*)::int FROM user_departments WHERE user_id = $1) AS mine`,
+        [currentUser.userId]
+      );
+      isInEveryDepartment = total > 0 && mine >= total;
+    }
+
+    if (canViewAll || roleLower === 'admin' || isInEveryDepartment) {
       // ── Can see ALL tasks ──
     } else if (canViewDept) {
       // ── Dept-visibility roles (Manager, Senior Executive, MD, CEO, etc. —
