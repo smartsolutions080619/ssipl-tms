@@ -310,4 +310,35 @@ export class UsersService {
     );
     return { message: 'Password changed successfully' };
   }
+
+  // ── Admin sets another user's password directly (no current password
+  //    needed — that's the whole point of an admin reset). Passwords are
+  //    bcrypt hashes, one-way by design: there is no plaintext to show or
+  //    recover, for this user or anyone else. What we *can* do is bcrypt-
+  //    compare the proposed new password against the stored hash, so the
+  //    admin can't accidentally "reset" it to the same password it
+  //    already is. ──
+  async adminSetPassword(userId: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 6) {
+      throw new BadRequestException('Password must be at least 6 characters.');
+    }
+
+    const [user] = await this.userRepo.query(
+      `SELECT id, password_hash FROM tenant_ssipl.users WHERE id = $1`,
+      [userId]
+    );
+    if (!user) throw new NotFoundException('User not found');
+
+    if (user.password_hash) {
+      const same = await bcrypt.compare(newPassword, user.password_hash);
+      if (same) throw new BadRequestException('New password must be different from the current password.');
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await this.userRepo.query(
+      `UPDATE tenant_ssipl.users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [newHash, userId]
+    );
+    return { message: 'Password updated successfully' };
+  }
 }

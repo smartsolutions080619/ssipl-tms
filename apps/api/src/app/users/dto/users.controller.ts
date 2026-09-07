@@ -114,9 +114,16 @@ export class UsersController {
     return this.usersService.setUserDepartments(id, body.departmentIds || []);
   }
 
+  @Put(':id/password')
+  @RequirePermissions(Permission.USER_UPDATE)
+  @ApiOperation({ summary: "Admin — set a user's password directly (no current password needed)" })
+  async setPassword(@Param('id') id: string, @Body() body: { newPassword: string }) {
+    return this.usersService.adminSetPassword(id, body.newPassword);
+  }
+
   @Delete(':id')
   @RequirePermissions(Permission.USER_DELETE)
-  @ApiOperation({ summary: 'Deactivate user' })
+  @ApiOperation({ summary: 'Permanently delete a user' })
   async remove(@Param('id') id: string) {
     return this.usersService.remove(id);
   }

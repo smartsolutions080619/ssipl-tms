@@ -49,7 +49,7 @@ export class AddLeaveTypesAndNormalizeBalances1000000000014
       VALUES
         ('CL',  'Casual Leave',      '🏖️', '#60a5fa', '12 days / year',                 12, true,  false, 0,  false, 1),
         ('SL',  'Sick Leave',        '🏥', '#34d399', '12 days / year',                 12, true,  false, 0,  false, 2),
-        ('PL',  'Privilege Leave',   '⭐', '#a78bfa', '15 days / year + carry forward',  15, true,  true,  30, false, 3),
+        ('PL',  'Privilege Leave',   '⭐', '#a78bfa', '15 days / year + carry forward',  15, true,  true,  15, false, 3),
         ('LWP', 'Leave Without Pay', '📋', '#f87171', 'Deducted from salary',            0,  false, false, 0,  true,  4)
       ON CONFLICT (code) DO NOTHING
     `);
