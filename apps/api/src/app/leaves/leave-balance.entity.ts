@@ -1,9 +1,16 @@
 import {
   Entity, Column, PrimaryGeneratedColumn,
-  CreateDateColumn, UpdateDateColumn,
+  CreateDateColumn, UpdateDateColumn, Unique,
 } from 'typeorm';
 
+// One row per user, per leave type, per year — replaces the old
+// cl_total/sl_total/pl_total fixed-column design, which couldn't support
+// an admin-defined, unbounded set of leave types. `total` is what the
+// employee is entitled to for that type+year (org default, pro-rated for
+// their joining date, or an admin override — see LeavesService.getOrCreateBalance
+// and overrideBalance).
 @Entity({ name: 'leave_balances' })
+@Unique(['userId', 'leaveTypeId', 'year'])
 export class LeaveBalance {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -11,28 +18,22 @@ export class LeaveBalance {
   @Column({ name: 'user_id' })
   userId!: string;
 
+  @Column({ name: 'leave_type_id' })
+  leaveTypeId!: string;
+
   @Column({ name: 'year', type: 'int' })
   year!: number;
 
-  // CL — Casual Leave (no carry forward)
-  @Column({ name: 'cl_total',     type: 'numeric', precision: 5, scale: 1, default: 0 })
-  clTotal!: number;
-  @Column({ name: 'cl_used',      type: 'numeric', precision: 5, scale: 1, default: 0 })
-  clUsed!: number;
+  @Column({ name: 'total', type: 'numeric', precision: 5, scale: 1, default: 0 })
+  total!: number;
 
-  // SL — Sick Leave (no carry forward)
-  @Column({ name: 'sl_total',     type: 'numeric', precision: 5, scale: 1, default: 0 })
-  slTotal!: number;
-  @Column({ name: 'sl_used',      type: 'numeric', precision: 5, scale: 1, default: 0 })
-  slUsed!: number;
+  @Column({ name: 'used', type: 'numeric', precision: 5, scale: 1, default: 0 })
+  used!: number;
 
-  // PL — Privilege Leave (carry forward max 30 days)
-  @Column({ name: 'pl_total',     type: 'numeric', precision: 5, scale: 1, default: 0 })
-  plTotal!: number;
-  @Column({ name: 'pl_used',      type: 'numeric', precision: 5, scale: 1, default: 0 })
-  plUsed!: number;
-  @Column({ name: 'pl_carried',   type: 'numeric', precision: 5, scale: 1, default: 0 })
-  plCarried!: number; // carried forward from last year
+  // Carried forward from the previous year (only meaningful when the
+  // leave type has carryForwardEnabled).
+  @Column({ name: 'carried', type: 'numeric', precision: 5, scale: 1, default: 0 })
+  carried!: number;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

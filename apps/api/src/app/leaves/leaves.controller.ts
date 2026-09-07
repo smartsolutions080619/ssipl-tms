@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
-  Controller, Get, Post, Patch, Delete, Body,
+  Controller, Get, Post, Put, Patch, Delete, Body,
   Param, Query, UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -10,7 +10,6 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/roles.enum';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { LeaveType } from './leave-request.entity';
 
 @ApiTags('Leaves')
 @ApiBearerAuth()
@@ -19,13 +18,56 @@ import { LeaveType } from './leave-request.entity';
 export class LeavesController {
   constructor(private readonly leavesService: LeavesService) {}
 
+  // ── Leave Types ──
+
+  @Get('types')
+  @ApiOperation({ summary: 'Get active leave types (visible to all — apply-leave form, balance cards)' })
+  async getActiveLeaveTypes() {
+    return this.leavesService.getActiveLeaveTypes();
+  }
+
+  @Get('types/all')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Admin — get every leave type, including deactivated ones' })
+  async getAllLeaveTypesAdmin() {
+    return this.leavesService.getAllLeaveTypesAdmin();
+  }
+
+  @Post('types')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Admin — create a custom leave type' })
+  async createLeaveType(@Body() body: any) {
+    return this.leavesService.createLeaveType(body);
+  }
+
+  @Put('types/:id')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Admin — update a leave type' })
+  async updateLeaveType(@Param('id') id: string, @Body() body: any) {
+    return this.leavesService.updateLeaveType(id, body);
+  }
+
+  @Patch('types/:id/activate')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Admin — reactivate a leave type' })
+  async activateLeaveType(@Param('id') id: string) {
+    return this.leavesService.setLeaveTypeActive(id, true);
+  }
+
+  @Patch('types/:id/deactivate')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Admin — deactivate a leave type (hides it from new requests, keeps history)' })
+  async deactivateLeaveType(@Param('id') id: string) {
+    return this.leavesService.setLeaveTypeActive(id, false);
+  }
+
   // ── Employee endpoints ──
 
   @Post()
   @ApiOperation({ summary: 'Submit a leave request' })
   async create(
     @CurrentUser() user: any,
-    @Body() body: { leaveType: LeaveType; fromDate: string; toDate: string; reason: string },
+    @Body() body: { leaveType: string; fromDate: string; toDate: string; reason: string },
   ) {
     return this.leavesService.create(user.userId, body);
   }
@@ -38,7 +80,6 @@ export class LeavesController {
 
   @Get('balance')
   @ApiOperation({ summary: 'Get my leave balance' })
-   
   async getBalance(@CurrentUser() user: any) {
     return this.leavesService.getBalance(user.userId);
   }
@@ -82,6 +123,26 @@ export class LeavesController {
     return this.leavesService.getAllBalances();
   }
 
+  @Get('balances/:userId')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: "Admin — one employee's balance across every leave type" })
+  async getUserBalance(@Param('userId') userId: string, @Query('year') year?: string) {
+    return this.leavesService.getUserBalance(userId, year ? parseInt(year) : undefined);
+  }
+
+  @Put('balances/:userId/:leaveTypeId')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: "Admin — override one employee's balance total for a leave type + year" })
+  async overrideBalance(
+    @Param('userId') userId: string,
+    @Param('leaveTypeId') leaveTypeId: string,
+    @CurrentUser() admin: any,
+    @Body() body: { total: number; year?: number; reason?: string },
+  ) {
+    const year = body.year || new Date().getFullYear();
+    return this.leavesService.overrideBalance(admin.userId, userId, leaveTypeId, year, body.total, body.reason);
+  }
+
   @Patch(':id/approve')
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Approve a leave request' })
@@ -102,7 +163,7 @@ export class LeavesController {
 
   @Delete(':id')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Delete a non-approved leave request (admin)' })
+  @ApiOperation({ summary: 'Delete a leave request (admin) — restores the balance first if it was approved' })
   async delete(@Param('id') id: string) {
     return this.leavesService.delete(id);
   }

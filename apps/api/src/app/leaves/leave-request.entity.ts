@@ -3,13 +3,6 @@ import {
   CreateDateColumn, UpdateDateColumn,
 } from 'typeorm';
 
-export enum LeaveType {
-  CL  = 'CL',   // Casual Leave
-  SL  = 'SL',   // Sick Leave
-  PL  = 'PL',   // Privilege Leave
-  LWP = 'LWP',  // Leave Without Pay
-}
-
 export enum LeaveStatus {
   PENDING  = 'PENDING',
   APPROVED = 'APPROVED',
@@ -25,8 +18,12 @@ export class LeaveRequest {
   @Column({ name: 'user_id' })
   userId!: string;
 
+  // References leave_types.code — an admin-defined, unbounded set rather
+  // than a fixed enum. Kept as a plain string (not a FK) so a leave type
+  // can be renamed/deactivated later without breaking past requests that
+  // used its code.
   @Column({ name: 'leave_type', type: 'varchar' })
-  leaveType!: LeaveType;
+  leaveType!: string;
 
   @Column({ name: 'from_date', type: 'date' })
   fromDate!: Date;

@@ -40,6 +40,7 @@ import { ReportsModule } from './reports/reports.module';
 import { LeavesModule } from './leaves/leaves.module';
 import { LeaveRequest } from './leaves/leave-request.entity';
 import { LeaveBalance } from './leaves/leave-balance.entity';
+import { LeaveType } from './leaves/leave-type.entity';
 import { Announcement } from './notifications/announcement.entity';
 import { HolidaysModule } from './holidays/holidays.module';
 import { Holiday } from './holidays/holiday.entity';
@@ -75,7 +76,7 @@ import { DesignationsModule } from './designations/designations.module';
         entities: [
           Tenant, ApiKey, User, Role, Task, Comment, ActivityLog,
           Department, AdminConfig, Notification, Announcement,
-          LeaveRequest, LeaveBalance, Holiday, Project, ProjectMember, Designation
+          LeaveRequest, LeaveBalance, LeaveType, Holiday, Project, ProjectMember, Designation
         ],
         synchronize: false,
         logging: true,
