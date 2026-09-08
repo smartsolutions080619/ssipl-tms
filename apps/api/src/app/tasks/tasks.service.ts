@@ -95,6 +95,36 @@ export class TasksService {
       isInEveryDepartment = total > 0 && mine >= total;
     }
 
+    // ── Admin-granted extra visibility (optional, additive) — from the
+    //    Users page, an admin can give a specific user visibility into
+    //    OTHER departments' tasks without making them an org member of
+    //    those departments (that's what user_departments/deptUserIds
+    //    below is for). This only ever ADDS to whichever visibility tier
+    //    the role above already grants — it's folded into every branch's
+    //    WHERE clause below via extraVisibilityClause/-Params, and
+    //    deliberately does NOT extend to the chain-of-custody rule (3)
+    //    further down: an extra grant sees a department's *current*
+    //    tasks, not the full forwarding history other managers get for
+    //    their own department. ──
+    let extraDeptUserIds: string[] = [];
+    if (!(canViewAll || roleLower === 'admin' || isInEveryDepartment)) {
+      const extraDeptUsers = await this.taskRepo.query(
+        `SELECT DISTINCT u.id FROM tenant_ssipl.users u
+         WHERE u.deleted_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM tenant_ssipl.user_extra_departments ued
+             JOIN tenant_ssipl.user_departments ud ON ud.department_id = ued.department_id
+             WHERE ued.viewer_user_id = $1 AND ud.user_id = u.id
+           )`,
+        [currentUser.userId]
+      );
+      extraDeptUserIds = extraDeptUsers.map((u: { id: string }) => u.id);
+    }
+    const extraVisibilityClause = extraDeptUserIds.length > 0
+      ? ' OR task.assignee_id IN (:...extraDeptUserIds) OR task.reporter_id IN (:...extraDeptUserIds)'
+      : '';
+    const extraVisibilityParams = extraDeptUserIds.length > 0 ? { extraDeptUserIds } : {};
+
     if (canViewAll || roleLower === 'admin' || isInEveryDepartment) {
       // ── Can see ALL tasks ──
     } else if (canViewDept) {
@@ -155,25 +185,26 @@ export class TasksService {
             OR task.reporter_id = :userId
             OR task.assignee_id IN (:...deptUserIds)
             OR task.reporter_id IN (:...deptUserIds)
-            OR task.id IN (:...rootOwnedTaskIds))`,
+            OR task.id IN (:...rootOwnedTaskIds)${extraVisibilityClause})`,
           {
             userId: currentUser.userId,
             deptUserIds,
             // avoid an empty IN () which some drivers choke on
             rootOwnedTaskIds: rootOwnedTaskIds.length > 0 ? rootOwnedTaskIds : ['00000000-0000-0000-0000-000000000000'],
+            ...extraVisibilityParams,
           }
         );
       } else {
         query.andWhere(
-          `(task.assignee_id = :userId OR task.reporter_id = :userId)`,
-          { userId: currentUser.userId }
+          `(task.assignee_id = :userId OR task.reporter_id = :userId${extraVisibilityClause})`,
+          { userId: currentUser.userId, ...extraVisibilityParams }
         );
       }
     } else {
-      // ── Employee — only own tasks ──
+      // ── Employee — only own tasks (plus any extra grant) ──
       query.andWhere(
-        `(task.assignee_id = :userId OR task.reporter_id = :userId)`,
-        { userId: currentUser.userId }
+        `(task.assignee_id = :userId OR task.reporter_id = :userId${extraVisibilityClause})`,
+        { userId: currentUser.userId, ...extraVisibilityParams }
       );
     }
 
