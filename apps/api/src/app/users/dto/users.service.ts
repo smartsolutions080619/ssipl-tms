@@ -31,7 +31,7 @@ export class UsersService {
       where: { isActive: true },
       select: {
         id: true, email: true, firstName: true, lastName: true,
-        roleId: true, departmentId: true, managerId: true, createdAt: true, status: true,
+        roleId: true, departmentId: true, managerId: true, designationId: true, createdAt: true, status: true,
       },
     });
 
@@ -82,7 +82,7 @@ export class UsersService {
       where: { id, isActive: true },
       select: {
         id: true, email: true, firstName: true, lastName: true,
-        roleId: true, departmentId: true, managerId: true, createdAt: true, status: true,
+        roleId: true, departmentId: true, managerId: true, designationId: true, createdAt: true, status: true,
       },
     });
     if (!user) throw new NotFoundException(`User with id ${id} not found`);
@@ -233,6 +233,7 @@ export class UsersService {
       firstName: dto.firstName, lastName: dto.lastName,
       roleId: dto.roleId, departmentId: dto.departmentId,
       managerId: dto.managerId || null,
+      designationId: dto.designationId || null,
       status: UserStatus.ACTIVE,
       isActive: true,
     });

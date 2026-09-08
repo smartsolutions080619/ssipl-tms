@@ -19,7 +19,17 @@ import {
   
     @Column({ type: 'jsonb', default: [] })
     permissions!: string[];
-  
+
+    // Role-level "Department Task Access" — every user holding this role
+    // automatically sees these departments' tasks, on top of whatever
+    // their normal hierarchy visibility already grants. Same additive
+    // mechanism as the per-user grant (user_extra_departments); this is
+    // just its role-wide counterpart so an admin doesn't have to
+    // configure every individual person by hand. See tasks.service.ts
+    // findAll() for how the two combine.
+    @Column({ name: 'extra_department_ids', type: 'jsonb', default: [] })
+    extraDepartmentIds!: string[];
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;
   

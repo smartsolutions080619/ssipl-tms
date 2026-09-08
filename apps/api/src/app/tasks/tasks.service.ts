@@ -64,15 +64,23 @@ export class TasksService {
 
     if (!currentUser) return [];
 
-    // ── Fetch this user's role permissions from DB dynamically ──
+    // ── Fetch this user's role permissions, plus the role-level AND
+    //    designation-level extra-department grants dynamically, in one
+    //    query (both are just a second FK off the same users row) ──
     const roleResult = await this.taskRepo.query(
-      `SELECT r.permissions FROM tenant_ssipl.roles r
-       INNER JOIN tenant_ssipl.users u ON u.role_id = r.id
+      `SELECT r.permissions,
+              r.extra_department_ids   AS "roleExtraDepartmentIds",
+              des.extra_department_ids AS "designationExtraDepartmentIds"
+       FROM tenant_ssipl.users u
+       LEFT JOIN tenant_ssipl.roles r        ON u.role_id = r.id
+       LEFT JOIN tenant_ssipl.designations des ON u.designation_id = des.id
        WHERE u.id = $1 LIMIT 1`,
       [currentUser.userId]
     );
 
     const permissions: string[] = roleResult?.[0]?.permissions || [];
+    const roleExtraDepartmentIds: string[] = roleResult?.[0]?.roleExtraDepartmentIds || [];
+    const designationExtraDepartmentIds: string[] = roleResult?.[0]?.designationExtraDepartmentIds || [];
     const canViewAll  = permissions.includes('task:view_all');
     const canViewDept = permissions.includes('task:view_department');
     const roleLower   = currentUser.role?.toLowerCase() || '';
@@ -95,30 +103,46 @@ export class TasksService {
       isInEveryDepartment = total > 0 && mine >= total;
     }
 
-    // ── Admin-granted extra visibility (optional, additive) — from the
-    //    Users page, an admin can give a specific user visibility into
-    //    OTHER departments' tasks without making them an org member of
-    //    those departments (that's what user_departments/deptUserIds
-    //    below is for). This only ever ADDS to whichever visibility tier
-    //    the role above already grants — it's folded into every branch's
-    //    WHERE clause below via extraVisibilityClause/-Params, and
-    //    deliberately does NOT extend to the chain-of-custody rule (3)
-    //    further down: an extra grant sees a department's *current*
-    //    tasks, not the full forwarding history other managers get for
-    //    their own department. ──
+    // ── Admin-granted extra visibility (optional, additive) — three
+    //    sources, combined:
+    //    1. Per-user (Users page → "Additional Task Visibility") — a grant
+    //       aimed at one specific person.
+    //    2. Per-role (Roles page → "Department Task Access") — applies to
+    //       everyone holding that role, no per-person setup needed.
+    //    3. Per-designation (Designations page → "Department Task Access")
+    //       — same idea, keyed off job title instead of role, since an
+    //       org may want to grant this by "who someone is" rather than
+    //       "what permissions they have."
+    //    None of these make the viewer an org member of the granted
+    //    department (that's user_departments/deptUserIds above) — this
+    //    only ever ADDS to whichever visibility tier the role's
+    //    permissions already grant, folded into every branch's WHERE
+    //    clause below via extraVisibilityClause/-Params. Deliberately
+    //    does NOT extend to the chain-of-custody rule (3) further down:
+    //    an extra grant sees a department's *current* tasks, not the
+    //    full forwarding history other managers get for their own
+    //    department. ──
     let extraDeptUserIds: string[] = [];
     if (!(canViewAll || roleLower === 'admin' || isInEveryDepartment)) {
-      const extraDeptUsers = await this.taskRepo.query(
-        `SELECT DISTINCT u.id FROM tenant_ssipl.users u
-         WHERE u.deleted_at IS NULL
-           AND EXISTS (
-             SELECT 1 FROM tenant_ssipl.user_extra_departments ued
-             JOIN tenant_ssipl.user_departments ud ON ud.department_id = ued.department_id
-             WHERE ued.viewer_user_id = $1 AND ud.user_id = u.id
-           )`,
+      const personalExtraRows = await this.taskRepo.query(
+        `SELECT department_id FROM tenant_ssipl.user_extra_departments WHERE viewer_user_id = $1`,
         [currentUser.userId]
       );
-      extraDeptUserIds = extraDeptUsers.map((u: { id: string }) => u.id);
+      const grantedDeptIds = [...new Set([
+        ...personalExtraRows.map((r: { department_id: string }) => r.department_id),
+        ...roleExtraDepartmentIds,
+        ...designationExtraDepartmentIds,
+      ])];
+
+      if (grantedDeptIds.length > 0) {
+        const extraDeptUsers = await this.taskRepo.query(
+          `SELECT DISTINCT u.id FROM tenant_ssipl.users u
+           INNER JOIN tenant_ssipl.user_departments ud ON ud.user_id = u.id
+           WHERE u.deleted_at IS NULL AND ud.department_id = ANY($1::uuid[])`,
+          [grantedDeptIds]
+        );
+        extraDeptUserIds = extraDeptUsers.map((u: { id: string }) => u.id);
+      }
     }
     const extraVisibilityClause = extraDeptUserIds.length > 0
       ? ' OR task.assignee_id IN (:...extraDeptUserIds) OR task.reporter_id IN (:...extraDeptUserIds)'

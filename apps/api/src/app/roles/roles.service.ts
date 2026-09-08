@@ -34,6 +34,7 @@ import {
         name: dto.name,
         description: dto.description,
         permissions: dto.permissions || [],
+        extraDepartmentIds: dto.extraDepartmentIds || [],
       });
   
       return this.roleRepo.save(role);

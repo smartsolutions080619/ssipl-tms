@@ -29,6 +29,11 @@ export class UpdateUserDto {
   @IsUUID()
   managerId?: string | null;
 
+  @ApiProperty({ required: false, description: 'Job title — also drives designation-level Department Task Access. Null clears it.' })
+  @IsOptional()
+  @IsUUID()
+  designationId?: string | null;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsBoolean()
