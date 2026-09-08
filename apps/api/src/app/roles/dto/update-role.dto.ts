@@ -16,4 +16,9 @@ export class UpdateRoleDto {
   @IsOptional()
   @IsArray()
   permissions?: string[];
+
+  @ApiProperty({ description: "Department IDs whose tasks every user with this role can additionally see", required: false })
+  @IsOptional()
+  @IsArray()
+  extraDepartmentIds?: string[];
 }

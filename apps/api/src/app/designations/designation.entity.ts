@@ -11,6 +11,14 @@ export class Designation {
   @Column({ nullable: true })
   description!: string | null;
 
+  // Designation-level "Department Task Access" — everyone holding this
+  // designation automatically sees these departments' tasks, the same
+  // additive mechanism as the role-level grant (roles.extraDepartmentIds)
+  // and the per-user grant (user_extra_departments). See
+  // tasks.service.ts findAll() for how all three combine.
+  @Column({ name: 'extra_department_ids', type: 'jsonb', default: [] })
+  extraDepartmentIds!: string[];
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

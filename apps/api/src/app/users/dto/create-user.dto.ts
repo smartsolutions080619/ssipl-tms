@@ -35,4 +35,9 @@ export class CreateUserDto {
   @IsOptional()
   @IsUUID()
   managerId?: string;
+
+  @ApiProperty({ example: 'uuid-of-designation', required: false, description: 'Job title — also drives designation-level Department Task Access.' })
+  @IsOptional()
+  @IsUUID()
+  designationId?: string;
 }

@@ -41,6 +41,9 @@ export class User {
   @Column({ name: 'department_id', nullable: true })
   departmentId!: string;
 
+  @Column({ name: 'designation_id', nullable: true })
+  designationId!: string | null;
+
   @Column({ name: 'manager_id', nullable: true })
   managerId!: string | null;
 
