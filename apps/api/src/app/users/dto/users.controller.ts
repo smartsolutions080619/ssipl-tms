@@ -114,6 +114,13 @@ export class UsersController {
     return this.usersService.setUserDepartments(id, body.departmentIds || []);
   }
 
+  @Put(':id/extra-departments')
+  @RequirePermissions(Permission.USER_UPDATE)
+  @ApiOperation({ summary: "Admin — set which OTHER departments' tasks this user may additionally see (optional, additive to their normal hierarchy visibility)" })
+  async setExtraDepartments(@Param('id') id: string, @Body() body: { departmentIds: string[] }) {
+    return this.usersService.setExtraDepartments(id, body.departmentIds || []);
+  }
+
   @Put(':id/password')
   @RequirePermissions(Permission.USER_UPDATE)
   @ApiOperation({ summary: "Admin — set a user's password directly (no current password needed)" })

@@ -47,9 +47,22 @@ export class UsersService {
       deptMap.set(r.user_id, list);
     }
 
+    // Same, for the optional extra task-visibility grant (which departments'
+    // tasks this user can additionally see, on top of org membership).
+    const extraRows = await this.userRepo.query(
+      `SELECT viewer_user_id, department_id FROM tenant_ssipl.user_extra_departments`
+    );
+    const extraDeptMap = new Map<string, string[]>();
+    for (const r of extraRows) {
+      const list = extraDeptMap.get(r.viewer_user_id) || [];
+      list.push(r.department_id);
+      extraDeptMap.set(r.viewer_user_id, list);
+    }
+
     return users.map(u => ({
       ...u,
       departmentIds: deptMap.get(u.id) || (u.departmentId ? [u.departmentId] : []),
+      extraDepartmentIds: extraDeptMap.get(u.id) || [],
     }));
   }
 
@@ -82,7 +95,9 @@ export class UsersService {
       ? rows.map((r: any) => r.department_id)
       : (user.departmentId ? [user.departmentId] : []);
 
-    return { ...user, departmentIds };
+    const extraDepartmentIds = await this.getExtraDepartments(id);
+
+    return { ...user, departmentIds, extraDepartmentIds };
   }
 
   // ── Get just the department IDs a user belongs to ──
@@ -119,6 +134,39 @@ export class UsersService {
     );
 
     return { userId, departmentIds };
+  }
+
+  // ── Extra task-visibility grants (admin-configured, optional) ──
+  //    Distinct from setUserDepartments above: this never touches org
+  //    membership, only which OTHER departments' tasks this user may
+  //    additionally see. See tasks.service.ts findAll() for how it's
+  //    applied — purely additive to whatever hierarchy visibility the
+  //    user's role already grants.
+  async getExtraDepartments(userId: string): Promise<string[]> {
+    const rows = await this.userRepo.query(
+      `SELECT department_id FROM tenant_ssipl.user_extra_departments WHERE viewer_user_id = $1`,
+      [userId]
+    );
+    return rows.map((r: any) => r.department_id);
+  }
+
+  async setExtraDepartments(userId: string, departmentIds: string[]) {
+    await this.findOne(userId); // throws 404 if user doesn't exist
+
+    await this.userRepo.query(
+      `DELETE FROM tenant_ssipl.user_extra_departments WHERE viewer_user_id = $1`,
+      [userId]
+    );
+
+    if (departmentIds.length > 0) {
+      const values = departmentIds.map((_, i) => `($1, $${i + 2})`).join(', ');
+      await this.userRepo.query(
+        `INSERT INTO tenant_ssipl.user_extra_departments (viewer_user_id, department_id) VALUES ${values}`,
+        [userId, ...departmentIds]
+      );
+    }
+
+    return { userId, extraDepartmentIds: departmentIds };
   }
 
   // ── Approve pending user ──
