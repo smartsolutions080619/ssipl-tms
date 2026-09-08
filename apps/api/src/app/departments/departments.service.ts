@@ -79,11 +79,43 @@ import {
     async remove(id: string) {
       const dept = await this.findOne(id);
       const children = await this.findChildren(id);
-  
+
       if (children.length > 0) {
         throw new BadRequestException('Cannot delete department with sub-departments');
       }
-  
+
+      // Scrub every place that references this department by ID before
+      // dropping the row. None of these are real DB foreign keys, so
+      // nothing here would ever error on its own — the risk is a stale ID
+      // silently sitting inside a personal/role/designation task-visibility
+      // grant forever, counted in badges and unioned into query filters
+      // for an entity that no longer exists. Cheaper to remove it than to
+      // leave dead weight that just never matches anything again.
+      await this.deptRepo.query(
+        `DELETE FROM tenant_ssipl.user_extra_departments WHERE department_id = $1`,
+        [id],
+      );
+      await this.deptRepo.query(
+        `UPDATE tenant_ssipl.roles
+         SET extra_department_ids = (
+           SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+           FROM jsonb_array_elements_text(extra_department_ids) elem
+           WHERE elem <> $1
+         )
+         WHERE extra_department_ids @> to_jsonb($1::text)`,
+        [id],
+      );
+      await this.deptRepo.query(
+        `UPDATE tenant_ssipl.designations
+         SET extra_department_ids = (
+           SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+           FROM jsonb_array_elements_text(extra_department_ids) elem
+           WHERE elem <> $1
+         )
+         WHERE extra_department_ids @> to_jsonb($1::text)`,
+        [id],
+      );
+
       await this.deptRepo.remove(dept);
       return { message: `Department "${dept.name}" deleted successfully` };
     }
