@@ -11,6 +11,8 @@ import { User, UserStatus } from '../../auth/user.entity';
 import { CreateUserDto } from './create-user.dto';
 import { UpdateUserDto } from './update-user.dto';
 import { MailService } from '../../mail/mail.service';
+import { ActivityLogService } from '../../activity/activity-log.service';
+import { ActivityAction } from '../../activity/activity-log.entity';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -19,6 +21,7 @@ export class UsersService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly mailService: MailService,
+    private readonly activityLogService: ActivityLogService,
   ) {}
 
   // ── Fire-and-forget helper ──
@@ -150,8 +153,9 @@ export class UsersService {
     return rows.map((r: any) => r.department_id);
   }
 
-  async setExtraDepartments(userId: string, departmentIds: string[]) {
-    await this.findOne(userId); // throws 404 if user doesn't exist
+  async setExtraDepartments(userId: string, departmentIds: string[], actorId?: string) {
+    const target = await this.findOne(userId); // throws 404 if user doesn't exist
+    const before = target.extraDepartmentIds || [];
 
     await this.userRepo.query(
       `DELETE FROM tenant_ssipl.user_extra_departments WHERE viewer_user_id = $1`,
@@ -166,7 +170,74 @@ export class UsersService {
       );
     }
 
+    // Audit trail — who gave/removed which department-task-visibility grant,
+    // and when. Skipped only for the create-user flow, which has no actor
+    // yet resolvable at that point (it's the same request as the account
+    // being created) — the grant is still visible on the account itself.
+    if (actorId) {
+      const before_ = [...before].sort();
+      const after_ = [...departmentIds].sort();
+      if (JSON.stringify(before_) !== JSON.stringify(after_)) {
+        await this.activityLogService.log(
+          actorId,
+          ActivityAction.DEPARTMENT_ACCESS_CHANGED,
+          undefined,
+          { scope: 'user', targetUserId: userId, departmentIds: before },
+          { scope: 'user', targetUserId: userId, departmentIds },
+        );
+      }
+    }
+
     return { userId, extraDepartmentIds: departmentIds };
+  }
+
+  // ── "Why can this person see this?" — the computed union of a user's
+  //    personal grant, their role's grant, and their designation's grant,
+  //    broken out by source so an admin can see where each department
+  //    came from without cross-checking three separate screens. ──
+  async getEffectiveAccess(userId: string) {
+    const user = await this.findOne(userId);
+
+    const roleRow = user.roleId
+      ? await this.userRepo.query(
+          `SELECT id, name, extra_department_ids AS "extraDepartmentIds" FROM tenant_ssipl.roles WHERE id = $1`,
+          [user.roleId],
+        )
+      : [];
+    const designationRow = (user as any).designationId
+      ? await this.userRepo.query(
+          `SELECT id, name, extra_department_ids AS "extraDepartmentIds" FROM tenant_ssipl.designations WHERE id = $1`,
+          [(user as any).designationId],
+        )
+      : [];
+
+    const role = roleRow[0] || null;
+    const designation = designationRow[0] || null;
+    const personalIds: string[] = user.extraDepartmentIds || [];
+    const roleIds: string[] = role?.extraDepartmentIds || [];
+    const designationIds: string[] = designation?.extraDepartmentIds || [];
+
+    const allIds = [...new Set([...personalIds, ...roleIds, ...designationIds])];
+    const deptRows = allIds.length
+      ? await this.userRepo.query(
+          `SELECT id, name FROM tenant_ssipl.departments WHERE id = ANY($1::uuid[])`,
+          [allIds],
+        )
+      : [];
+    const nameOf = (id: string) => deptRows.find((d: any) => d.id === id)?.name || id;
+
+    return {
+      userId,
+      ownDepartmentIds: user.departmentIds || [],
+      personal: personalIds.map(id => ({ id, name: nameOf(id) })),
+      role: role
+        ? { id: role.id, name: role.name, departments: roleIds.map(id => ({ id, name: nameOf(id) })) }
+        : null,
+      designation: designation
+        ? { id: designation.id, name: designation.name, departments: designationIds.map(id => ({ id, name: nameOf(id) })) }
+        : null,
+      effective: allIds.map(id => ({ id, name: nameOf(id) })),
+    };
   }
 
   // ── Approve pending user ──
