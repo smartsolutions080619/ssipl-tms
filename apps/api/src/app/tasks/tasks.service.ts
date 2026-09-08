@@ -67,13 +67,20 @@ export class TasksService {
     // ── Fetch this user's role permissions, plus the role-level AND
     //    designation-level extra-department grants dynamically, in one
     //    query (both are just a second FK off the same users row) ──
+    // linkedDesignation is the designation a role is optionally linked to
+    // (Roles page → "Linked Designation") so it can share one Department
+    // Task Access list instead of keeping its own — when present, its
+    // extra_department_ids wins over the role's own (which goes unused,
+    // but stays stored, while linked). The designation's own list is
+    // always authoritative for itself — it never borrows from anything.
     const roleResult = await this.taskRepo.query(
       `SELECT r.permissions,
-              r.extra_department_ids   AS "roleExtraDepartmentIds",
+              COALESCE(linkedDesignation.extra_department_ids, r.extra_department_ids) AS "roleExtraDepartmentIds",
               des.extra_department_ids AS "designationExtraDepartmentIds"
        FROM tenant_ssipl.users u
-       LEFT JOIN tenant_ssipl.roles r        ON u.role_id = r.id
+       LEFT JOIN tenant_ssipl.roles r          ON u.role_id = r.id
        LEFT JOIN tenant_ssipl.designations des ON u.designation_id = des.id
+       LEFT JOIN tenant_ssipl.designations linkedDesignation ON r.linked_designation_id = linkedDesignation.id
        WHERE u.id = $1 LIMIT 1`,
       [currentUser.userId]
     );

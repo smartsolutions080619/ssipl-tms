@@ -30,6 +30,17 @@ import {
     @Column({ name: 'extra_department_ids', type: 'jsonb', default: [] })
     extraDepartmentIds!: string[];
 
+    // Optional link to a Designation, so a Role and a Designation that
+    // represent the same real-world title (e.g. Role "CEO" + Designation
+    // "CEO") can share one Department Task Access list instead of drifting
+    // apart as two independently-edited ones. When set, extraDepartmentIds
+    // above is ignored in favor of the linked designation's own list
+    // everywhere it's read (tasks.service.ts, effective-access) — it stays
+    // stored, untouched, so unlinking later restores whatever this role
+    // had on its own. The designation is always the source of truth here.
+    @Column({ name: 'linked_designation_id', type: 'uuid', nullable: true })
+    linkedDesignationId!: string | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;
   
