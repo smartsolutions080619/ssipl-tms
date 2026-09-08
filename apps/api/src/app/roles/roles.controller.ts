@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role as RoleEnum } from '../common/enums/roles.enum';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Roles')
 @ApiBearerAuth()
@@ -24,8 +25,8 @@ export class RolesController {
   @Post()
   @Roles(RoleEnum.ADMIN)
   @ApiOperation({ summary: 'Create a new role' })
-  async create(@Body() dto: CreateRoleDto) {
-    return this.rolesService.create(dto);
+  async create(@Body() dto: CreateRoleDto, @CurrentUser() user: any) {
+    return this.rolesService.create(dto, user.userId);
   }
 
   @Post('seed')
@@ -45,8 +46,8 @@ export class RolesController {
   @Put(':id')
   @Roles(RoleEnum.ADMIN)
   @ApiOperation({ summary: 'Update role' })
-  async update(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
-    return this.rolesService.update(id, dto);
+  async update(@Param('id') id: string, @Body() dto: UpdateRoleDto, @CurrentUser() user: any) {
+    return this.rolesService.update(id, dto, user.userId);
   }
 
   @Delete(':id')

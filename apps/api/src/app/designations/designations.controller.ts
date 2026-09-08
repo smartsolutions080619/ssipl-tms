@@ -5,6 +5,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/roles.enum';
 import { DesignationsService } from './designations.service';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Designations')
 @ApiBearerAuth()
@@ -28,15 +29,15 @@ export class DesignationsController {
   @Post()
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Create a new designation (Admin only)' })
-  async create(@Body() dto: { name: string; description?: string; extraDepartmentIds?: string[] }) {
-    return this.designationsService.create(dto);
+  async create(@Body() dto: { name: string; description?: string; extraDepartmentIds?: string[] }, @CurrentUser() user: any) {
+    return this.designationsService.create(dto, user.userId);
   }
 
   @Put(':id')
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Update a designation (Admin only)' })
-  async update(@Param('id') id: string, @Body() dto: { name?: string; description?: string; extraDepartmentIds?: string[] }) {
-    return this.designationsService.update(id, dto);
+  async update(@Param('id') id: string, @Body() dto: { name?: string; description?: string; extraDepartmentIds?: string[] }, @CurrentUser() user: any) {
+    return this.designationsService.update(id, dto, user.userId);
   }
 
   @Delete(':id')

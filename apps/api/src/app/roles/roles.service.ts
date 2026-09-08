@@ -8,12 +8,15 @@ import {
   import { Role } from './role.entity';
   import { CreateRoleDto } from './dto/create-role.dto';
   import { UpdateRoleDto } from './dto/update-role.dto';
-  
+  import { ActivityLogService } from '../activity/activity-log.service';
+  import { ActivityAction } from '../activity/activity-log.entity';
+
   @Injectable()
   export class RolesService {
     constructor(
       @InjectRepository(Role)
       private readonly roleRepo: Repository<Role>,
+      private readonly activityLogService: ActivityLogService,
     ) {}
   
     async findAll() {
@@ -26,24 +29,53 @@ import {
       return role;
     }
   
-    async create(dto: CreateRoleDto) {
+    async create(dto: CreateRoleDto, actorId?: string) {
       const existing = await this.roleRepo.findOne({ where: { name: dto.name } });
       if (existing) throw new ConflictException(`Role "${dto.name}" already exists`);
-  
+
       const role = this.roleRepo.create({
         name: dto.name,
         description: dto.description,
         permissions: dto.permissions || [],
         extraDepartmentIds: dto.extraDepartmentIds || [],
       });
-  
-      return this.roleRepo.save(role);
+
+      const saved = await this.roleRepo.save(role);
+
+      if (actorId && dto.extraDepartmentIds?.length) {
+        await this.activityLogService.log(
+          actorId,
+          ActivityAction.DEPARTMENT_ACCESS_CHANGED,
+          undefined,
+          { scope: 'role', targetRoleId: saved.id, targetRoleName: saved.name, departmentIds: [] },
+          { scope: 'role', targetRoleId: saved.id, targetRoleName: saved.name, departmentIds: dto.extraDepartmentIds },
+        );
+      }
+
+      return saved;
     }
   
-    async update(id: string, dto: UpdateRoleDto) {
+    async update(id: string, dto: UpdateRoleDto, actorId?: string) {
       const role = await this.findOne(id);
+      const before = role.extraDepartmentIds || [];
       Object.assign(role, dto);
-      return this.roleRepo.save(role);
+      const saved = await this.roleRepo.save(role);
+
+      if (actorId && dto.extraDepartmentIds !== undefined) {
+        const before_ = [...before].sort();
+        const after_ = [...(dto.extraDepartmentIds || [])].sort();
+        if (JSON.stringify(before_) !== JSON.stringify(after_)) {
+          await this.activityLogService.log(
+            actorId,
+            ActivityAction.DEPARTMENT_ACCESS_CHANGED,
+            undefined,
+            { scope: 'role', targetRoleId: id, targetRoleName: role.name, departmentIds: before },
+            { scope: 'role', targetRoleId: id, targetRoleName: role.name, departmentIds: dto.extraDepartmentIds },
+          );
+        }
+      }
+
+      return saved;
     }
   
     async remove(id: string) {

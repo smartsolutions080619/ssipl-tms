@@ -117,8 +117,15 @@ export class UsersController {
   @Put(':id/extra-departments')
   @RequirePermissions(Permission.USER_UPDATE)
   @ApiOperation({ summary: "Admin — set which OTHER departments' tasks this user may additionally see (optional, additive to their normal hierarchy visibility)" })
-  async setExtraDepartments(@Param('id') id: string, @Body() body: { departmentIds: string[] }) {
-    return this.usersService.setExtraDepartments(id, body.departmentIds || []);
+  async setExtraDepartments(@Param('id') id: string, @Body() body: { departmentIds: string[] }, @CurrentUser() user: any) {
+    return this.usersService.setExtraDepartments(id, body.departmentIds || [], user.userId);
+  }
+
+  @Get(':id/effective-access')
+  @RequirePermissions(Permission.USER_READ)
+  @ApiOperation({ summary: "Admin — the computed union of this user's personal, role, and designation department-task-visibility grants, broken out by source" })
+  async getEffectiveAccess(@Param('id') id: string) {
+    return this.usersService.getEffectiveAccess(id);
   }
 
   @Put(':id/password')

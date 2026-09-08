@@ -2,12 +2,15 @@ import { Injectable, NotFoundException, ConflictException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Designation } from './designation.entity';
+import { ActivityLogService } from '../activity/activity-log.service';
+import { ActivityAction } from '../activity/activity-log.entity';
 
 @Injectable()
 export class DesignationsService {
   constructor(
     @InjectRepository(Designation)
     private readonly repo: Repository<Designation>,
+    private readonly activityLogService: ActivityLogService,
   ) {}
 
   async findAll() {
@@ -28,7 +31,7 @@ export class DesignationsService {
     return designation;
   }
 
-  async create(dto: { name: string; description?: string; extraDepartmentIds?: string[] }) {
+  async create(dto: { name: string; description?: string; extraDepartmentIds?: string[] }, actorId?: string) {
     const existing = await this.repo.findOne({ where: { name: dto.name } });
     if (existing) throw new ConflictException('A designation with this name already exists');
 
@@ -37,15 +40,44 @@ export class DesignationsService {
       description: dto.description?.trim() || null,
       extraDepartmentIds: dto.extraDepartmentIds || [],
     });
-    return this.repo.save(designation);
+    const saved = await this.repo.save(designation);
+
+    if (actorId && dto.extraDepartmentIds?.length) {
+      await this.activityLogService.log(
+        actorId,
+        ActivityAction.DEPARTMENT_ACCESS_CHANGED,
+        undefined,
+        { scope: 'designation', targetDesignationId: saved.id, targetDesignationName: saved.name, departmentIds: [] },
+        { scope: 'designation', targetDesignationId: saved.id, targetDesignationName: saved.name, departmentIds: dto.extraDepartmentIds },
+      );
+    }
+
+    return saved;
   }
 
-  async update(id: string, dto: { name?: string; description?: string; extraDepartmentIds?: string[] }) {
+  async update(id: string, dto: { name?: string; description?: string; extraDepartmentIds?: string[] }, actorId?: string) {
     const designation = await this.findOne(id);
+    const before = designation.extraDepartmentIds || [];
     if (dto.name !== undefined) designation.name = dto.name.trim();
     if (dto.description !== undefined) designation.description = dto.description?.trim() || null;
     if (dto.extraDepartmentIds !== undefined) designation.extraDepartmentIds = dto.extraDepartmentIds;
-    return this.repo.save(designation);
+    const saved = await this.repo.save(designation);
+
+    if (actorId && dto.extraDepartmentIds !== undefined) {
+      const before_ = [...before].sort();
+      const after_ = [...dto.extraDepartmentIds].sort();
+      if (JSON.stringify(before_) !== JSON.stringify(after_)) {
+        await this.activityLogService.log(
+          actorId,
+          ActivityAction.DEPARTMENT_ACCESS_CHANGED,
+          undefined,
+          { scope: 'designation', targetDesignationId: id, targetDesignationName: saved.name, departmentIds: before },
+          { scope: 'designation', targetDesignationId: id, targetDesignationName: saved.name, departmentIds: dto.extraDepartmentIds },
+        );
+      }
+    }
+
+    return saved;
   }
 
   async remove(id: string) {
