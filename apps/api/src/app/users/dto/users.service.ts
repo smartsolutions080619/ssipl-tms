@@ -198,12 +198,23 @@ export class UsersService {
   async getEffectiveAccess(userId: string) {
     const user = await this.findOne(userId);
 
+    // A role can be linked to a designation (Roles page → "Linked
+    // Designation") to share one Department Task Access list — when
+    // linked, use the linked designation's list instead of the role's own,
+    // and surface which designation it came from so the panel can say so.
     const roleRow = user.roleId
       ? await this.userRepo.query(
-          `SELECT id, name, extra_department_ids AS "extraDepartmentIds" FROM tenant_ssipl.roles WHERE id = $1`,
+          `SELECT r.id, r.name,
+                  COALESCE(ld.extra_department_ids, r.extra_department_ids) AS "extraDepartmentIds",
+                  ld.id   AS "linkedDesignationId",
+                  ld.name AS "linkedDesignationName"
+           FROM tenant_ssipl.roles r
+           LEFT JOIN tenant_ssipl.designations ld ON r.linked_designation_id = ld.id
+           WHERE r.id = $1`,
           [user.roleId],
         )
       : [];
+    // A designation is always its own source of truth — nothing to borrow.
     const designationRow = (user as any).designationId
       ? await this.userRepo.query(
           `SELECT id, name, extra_department_ids AS "extraDepartmentIds" FROM tenant_ssipl.designations WHERE id = $1`,
@@ -231,7 +242,12 @@ export class UsersService {
       ownDepartmentIds: user.departmentIds || [],
       personal: personalIds.map(id => ({ id, name: nameOf(id) })),
       role: role
-        ? { id: role.id, name: role.name, departments: roleIds.map(id => ({ id, name: nameOf(id) })) }
+        ? {
+            id: role.id,
+            name: role.name,
+            departments: roleIds.map(id => ({ id, name: nameOf(id) })),
+            linkedDesignation: role.linkedDesignationId ? { id: role.linkedDesignationId, name: role.linkedDesignationName } : null,
+          }
         : null,
       designation: designation
         ? { id: designation.id, name: designation.name, departments: designationIds.map(id => ({ id, name: nameOf(id) })) }

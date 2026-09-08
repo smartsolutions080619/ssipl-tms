@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsUUID } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateRoleDto {
@@ -21,4 +21,9 @@ export class CreateRoleDto {
   @IsOptional()
   @IsArray()
   extraDepartmentIds?: string[];
+
+  @ApiProperty({ description: "Optional Designation ID to borrow its Department Task Access list from, instead of keeping this role's own", required: false })
+  @IsOptional()
+  @IsUUID()
+  linkedDesignationId?: string | null;
 }
