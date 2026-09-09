@@ -62,10 +62,24 @@ export class UsersService {
       extraDeptMap.set(r.viewer_user_id, list);
     }
 
+    // Same again, for the optional extra task-visibility grant keyed off
+    // DESIGNATION instead of department — "let this person also see tasks
+    // touched by anyone holding designation X," regardless of department.
+    const extraDesigRows = await this.userRepo.query(
+      `SELECT viewer_user_id, designation_id FROM tenant_ssipl.user_extra_designations`
+    );
+    const extraDesigMap = new Map<string, string[]>();
+    for (const r of extraDesigRows) {
+      const list = extraDesigMap.get(r.viewer_user_id) || [];
+      list.push(r.designation_id);
+      extraDesigMap.set(r.viewer_user_id, list);
+    }
+
     return users.map(u => ({
       ...u,
       departmentIds: deptMap.get(u.id) || (u.departmentId ? [u.departmentId] : []),
       extraDepartmentIds: extraDeptMap.get(u.id) || [],
+      extraDesignationIds: extraDesigMap.get(u.id) || [],
     }));
   }
 
@@ -99,8 +113,9 @@ export class UsersService {
       : (user.departmentId ? [user.departmentId] : []);
 
     const extraDepartmentIds = await this.getExtraDepartments(id);
+    const extraDesignationIds = await this.getExtraDesignations(id);
 
-    return { ...user, departmentIds, extraDepartmentIds };
+    return { ...user, departmentIds, extraDepartmentIds, extraDesignationIds };
   }
 
   // ── Get just the department IDs a user belongs to ──
@@ -191,6 +206,56 @@ export class UsersService {
     return { userId, extraDepartmentIds: departmentIds };
   }
 
+  // ── Extra task-visibility grants keyed off DESIGNATION instead of
+  //    department (admin-configured, optional) ── "let this person also
+  //    see tasks touched by anyone holding designation X" — e.g. every
+  //    "Team Lead," regardless of which department they're actually in.
+  //    Set at user creation/approval or edit time. Purely additive, same
+  //    combining rule as everything else in tasks.service.ts findAll().
+  async getExtraDesignations(userId: string): Promise<string[]> {
+    const rows = await this.userRepo.query(
+      `SELECT designation_id FROM tenant_ssipl.user_extra_designations WHERE viewer_user_id = $1`,
+      [userId]
+    );
+    return rows.map((r: any) => r.designation_id);
+  }
+
+  async setExtraDesignations(userId: string, designationIds: string[], actorId?: string) {
+    const target = await this.findOne(userId); // throws 404 if user doesn't exist
+    const before = target.extraDesignationIds || [];
+
+    await this.userRepo.query(
+      `DELETE FROM tenant_ssipl.user_extra_designations WHERE viewer_user_id = $1`,
+      [userId]
+    );
+
+    if (designationIds.length > 0) {
+      const values = designationIds.map((_, i) => `($1, $${i + 2})`).join(', ');
+      await this.userRepo.query(
+        `INSERT INTO tenant_ssipl.user_extra_designations (viewer_user_id, designation_id) VALUES ${values}`,
+        [userId, ...designationIds]
+      );
+    }
+
+    // Same audit-trail rule as setExtraDepartments — skipped only on the
+    // create-user flow, which has no separate actor to attribute yet.
+    if (actorId) {
+      const before_ = [...before].sort();
+      const after_ = [...designationIds].sort();
+      if (JSON.stringify(before_) !== JSON.stringify(after_)) {
+        await this.activityLogService.log(
+          actorId,
+          ActivityAction.DESIGNATION_ACCESS_CHANGED,
+          undefined,
+          { scope: 'user', targetUserId: userId, designationIds: before },
+          { scope: 'user', targetUserId: userId, designationIds },
+        );
+      }
+    }
+
+    return { userId, extraDesignationIds: designationIds };
+  }
+
   // ── "Why can this person see this?" — the computed union of a user's
   //    personal grant, their role's grant, and their designation's grant,
   //    broken out by source so an admin can see where each department
@@ -237,10 +302,22 @@ export class UsersService {
       : [];
     const nameOf = (id: string) => deptRows.find((d: any) => d.id === id)?.name || id;
 
+    // Separate axis from everything above — not a department grant at all,
+    // but "also see tasks touched by anyone holding these designations."
+    const personalDesignationIds: string[] = user.extraDesignationIds || [];
+    const desigRows = personalDesignationIds.length
+      ? await this.userRepo.query(
+          `SELECT id, name FROM tenant_ssipl.designations WHERE id = ANY($1::uuid[])`,
+          [personalDesignationIds],
+        )
+      : [];
+    const desigNameOf = (id: string) => desigRows.find((d: any) => d.id === id)?.name || id;
+
     return {
       userId,
       ownDepartmentIds: user.departmentIds || [],
       personal: personalIds.map(id => ({ id, name: nameOf(id) })),
+      personalDesignations: personalDesignationIds.map(id => ({ id, name: desigNameOf(id) })),
       role: role
         ? {
             id: role.id,

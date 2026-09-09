@@ -115,6 +115,13 @@ export class DesignationsService {
       `UPDATE tenant_ssipl.users SET designation_id = NULL WHERE designation_id = $1`,
       [id]
     );
+    // Same for anyone who was granted extra task visibility into this
+    // designation's holders (Users page → per-user designation grant) —
+    // otherwise the grant silently stops resolving to anyone.
+    await this.repo.query(
+      `DELETE FROM tenant_ssipl.user_extra_designations WHERE designation_id = $1`,
+      [id]
+    );
     await this.repo.delete(id);
     return { message: 'Designation deleted' };
   }

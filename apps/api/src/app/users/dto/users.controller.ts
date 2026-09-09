@@ -121,6 +121,13 @@ export class UsersController {
     return this.usersService.setExtraDepartments(id, body.departmentIds || [], user.userId);
   }
 
+  @Put(':id/extra-designations')
+  @RequirePermissions(Permission.USER_UPDATE)
+  @ApiOperation({ summary: "Admin — set which designations' holders' tasks this user may additionally see, regardless of department (optional, additive to their normal hierarchy visibility)" })
+  async setExtraDesignations(@Param('id') id: string, @Body() body: { designationIds: string[] }, @CurrentUser() user: any) {
+    return this.usersService.setExtraDesignations(id, body.designationIds || [], user.userId);
+  }
+
   @Get(':id/effective-access')
   @RequirePermissions(Permission.USER_READ)
   @ApiOperation({ summary: "Admin — the computed union of this user's personal, role, and designation department-task-visibility grants, broken out by source" })

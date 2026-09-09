@@ -110,37 +110,41 @@ export class TasksService {
       isInEveryDepartment = total > 0 && mine >= total;
     }
 
-    // ── Admin-granted extra visibility (optional, additive) — three
+    // ── Admin-granted extra visibility (optional, additive) — four
     //    sources, combined:
-    //    1. Per-user (Users page → "Additional Task Visibility") — a grant
-    //       aimed at one specific person.
-    //    2. Per-role (Roles page → "Department Task Access") — applies to
-    //       everyone holding that role, no per-person setup needed.
-    //    3. Per-designation (Designations page → "Department Task Access")
-    //       — same idea, keyed off job title instead of role, since an
-    //       org may want to grant this by "who someone is" rather than
-    //       "what permissions they have."
+    //    1. Per-user, by department (Users page → "Additional Task
+    //       Visibility") — a grant aimed at one specific person.
+    //    2. Per-role, by department (Roles page → "Department Task
+    //       Access") — applies to everyone holding that role.
+    //    3. Per-designation, by department (Designations page →
+    //       "Department Task Access") — same idea, keyed off job title.
+    //    4. Per-user, by designation (Users page → designation-based
+    //       grant, set at creation/approval/edit) — "let this person see
+    //       tasks touched by anyone holding designation X," regardless of
+    //       that person's department. A different axis from 1-3: it never
+    //       looks at user_departments at all, only who currently holds
+    //       the granted designation(s).
     //    None of these make the viewer an org member of the granted
     //    department (that's user_departments/deptUserIds above) — this
     //    only ever ADDS to whichever visibility tier the role's
     //    permissions already grant, folded into every branch's WHERE
     //    clause below via extraVisibilityClause/-Params. Deliberately
     //    does NOT extend to the chain-of-custody rule (3) further down:
-    //    an extra grant sees a department's *current* tasks, not the
-    //    full forwarding history other managers get for their own
-    //    department. ──
-    let extraDeptUserIds: string[] = [];
+    //    an extra grant sees current tasks, not the full forwarding
+    //    history other managers get for their own department. ──
+    let extraVisibilityUserIds: string[] = [];
     if (!(canViewAll || roleLower === 'admin' || isInEveryDepartment)) {
-      const personalExtraRows = await this.taskRepo.query(
+      const personalExtraDeptRows = await this.taskRepo.query(
         `SELECT department_id FROM tenant_ssipl.user_extra_departments WHERE viewer_user_id = $1`,
         [currentUser.userId]
       );
       const grantedDeptIds = [...new Set([
-        ...personalExtraRows.map((r: { department_id: string }) => r.department_id),
+        ...personalExtraDeptRows.map((r: { department_id: string }) => r.department_id),
         ...roleExtraDepartmentIds,
         ...designationExtraDepartmentIds,
       ])];
 
+      let deptBasedUserIds: string[] = [];
       if (grantedDeptIds.length > 0) {
         const extraDeptUsers = await this.taskRepo.query(
           `SELECT DISTINCT u.id FROM tenant_ssipl.users u
@@ -148,13 +152,30 @@ export class TasksService {
            WHERE u.deleted_at IS NULL AND ud.department_id = ANY($1::uuid[])`,
           [grantedDeptIds]
         );
-        extraDeptUserIds = extraDeptUsers.map((u: { id: string }) => u.id);
+        deptBasedUserIds = extraDeptUsers.map((u: { id: string }) => u.id);
       }
+
+      const personalExtraDesigRows = await this.taskRepo.query(
+        `SELECT designation_id FROM tenant_ssipl.user_extra_designations WHERE viewer_user_id = $1`,
+        [currentUser.userId]
+      );
+      const grantedDesigIds = personalExtraDesigRows.map((r: { designation_id: string }) => r.designation_id);
+
+      let desigBasedUserIds: string[] = [];
+      if (grantedDesigIds.length > 0) {
+        const extraDesigUsers = await this.taskRepo.query(
+          `SELECT id FROM tenant_ssipl.users WHERE deleted_at IS NULL AND designation_id = ANY($1::uuid[])`,
+          [grantedDesigIds]
+        );
+        desigBasedUserIds = extraDesigUsers.map((u: { id: string }) => u.id);
+      }
+
+      extraVisibilityUserIds = [...new Set([...deptBasedUserIds, ...desigBasedUserIds])];
     }
-    const extraVisibilityClause = extraDeptUserIds.length > 0
-      ? ' OR task.assignee_id IN (:...extraDeptUserIds) OR task.reporter_id IN (:...extraDeptUserIds)'
+    const extraVisibilityClause = extraVisibilityUserIds.length > 0
+      ? ' OR task.assignee_id IN (:...extraVisibilityUserIds) OR task.reporter_id IN (:...extraVisibilityUserIds)'
       : '';
-    const extraVisibilityParams = extraDeptUserIds.length > 0 ? { extraDeptUserIds } : {};
+    const extraVisibilityParams = extraVisibilityUserIds.length > 0 ? { extraVisibilityUserIds } : {};
 
     if (canViewAll || roleLower === 'admin' || isInEveryDepartment) {
       // ── Can see ALL tasks ──
