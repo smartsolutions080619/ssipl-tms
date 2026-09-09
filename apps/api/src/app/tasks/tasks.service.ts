@@ -64,30 +64,19 @@ export class TasksService {
 
     if (!currentUser) return [];
 
-    // ── Fetch this user's role permissions, plus the role-level AND
-    //    designation-level extra-department grants dynamically, in one
-    //    query (both are just a second FK off the same users row) ──
-    // linkedDesignation is the designation a role is optionally linked to
-    // (Roles page → "Linked Designation") so it can share one Department
-    // Task Access list instead of keeping its own — when present, its
-    // extra_department_ids wins over the role's own (which goes unused,
-    // but stays stored, while linked). The designation's own list is
-    // always authoritative for itself — it never borrows from anything.
+    // ── Fetch this user's role permissions. Neither Roles nor Designations
+    //    carry a department grant of their own anymore — both org-wide
+    //    mechanisms were retired in favor of handling all extra task
+    //    visibility from the Users page alone (see the block below). ──
     const roleResult = await this.taskRepo.query(
-      `SELECT r.permissions,
-              COALESCE(linkedDesignation.extra_department_ids, r.extra_department_ids) AS "roleExtraDepartmentIds",
-              des.extra_department_ids AS "designationExtraDepartmentIds"
+      `SELECT r.permissions
        FROM tenant_ssipl.users u
-       LEFT JOIN tenant_ssipl.roles r          ON u.role_id = r.id
-       LEFT JOIN tenant_ssipl.designations des ON u.designation_id = des.id
-       LEFT JOIN tenant_ssipl.designations linkedDesignation ON r.linked_designation_id = linkedDesignation.id
+       LEFT JOIN tenant_ssipl.roles r ON u.role_id = r.id
        WHERE u.id = $1 LIMIT 1`,
       [currentUser.userId]
     );
 
     const permissions: string[] = roleResult?.[0]?.permissions || [];
-    const roleExtraDepartmentIds: string[] = roleResult?.[0]?.roleExtraDepartmentIds || [];
-    const designationExtraDepartmentIds: string[] = roleResult?.[0]?.designationExtraDepartmentIds || [];
     const canViewAll  = permissions.includes('task:view_all');
     const canViewDept = permissions.includes('task:view_department');
     const roleLower   = currentUser.role?.toLowerCase() || '';
@@ -110,39 +99,32 @@ export class TasksService {
       isInEveryDepartment = total > 0 && mine >= total;
     }
 
-    // ── Admin-granted extra visibility (optional, additive) — four
-    //    sources, combined:
-    //    1. Per-user, by department (Users page → "Additional Task
-    //       Visibility") — a grant aimed at one specific person.
-    //    2. Per-role, by department (Roles page → "Department Task
-    //       Access") — applies to everyone holding that role.
-    //    3. Per-designation, by department (Designations page →
-    //       "Department Task Access") — same idea, keyed off job title.
-    //    4. Per-user, by designation (Users page → designation-based
-    //       grant, set at creation/approval/edit) — "let this person see
-    //       tasks touched by anyone holding designation X," regardless of
-    //       that person's department. A different axis from 1-3: it never
-    //       looks at user_departments at all, only who currently holds
-    //       the granted designation(s).
-    //    None of these make the viewer an org member of the granted
-    //    department (that's user_departments/deptUserIds above) — this
-    //    only ever ADDS to whichever visibility tier the role's
-    //    permissions already grant, folded into every branch's WHERE
-    //    clause below via extraVisibilityClause/-Params. Deliberately
-    //    does NOT extend to the chain-of-custody rule (3) further down:
-    //    an extra grant sees current tasks, not the full forwarding
-    //    history other managers get for their own department. ──
+    // ── Admin-granted extra visibility (optional, additive) — two
+    //    sources, both per-user and both configured exclusively from the
+    //    Users page (Roles and Designations no longer carry a grant of
+    //    their own):
+    //    1. By department ("Additional Task Visibility") — sees tasks
+    //       touched by anyone in the granted department(s).
+    //    2. By designation ("Designation Task Access") — sees tasks
+    //       touched by anyone holding the granted designation(s),
+    //       regardless of that person's department. A different axis
+    //       from #1: it never looks at user_departments at all, only who
+    //       currently holds the granted designation(s).
+    //    Neither makes the viewer an org member of the granted department
+    //    (that's user_departments/deptUserIds above) — this only ever
+    //    ADDS to whichever visibility tier the role's permissions already
+    //    grant, folded into every branch's WHERE clause below via
+    //    extraVisibilityClause/-Params. Deliberately does NOT extend to
+    //    the chain-of-custody rule (3) further down: an extra grant sees
+    //    current tasks, not the full forwarding history other managers
+    //    get for their own department. ──
     let extraVisibilityUserIds: string[] = [];
     if (!(canViewAll || roleLower === 'admin' || isInEveryDepartment)) {
       const personalExtraDeptRows = await this.taskRepo.query(
         `SELECT department_id FROM tenant_ssipl.user_extra_departments WHERE viewer_user_id = $1`,
         [currentUser.userId]
       );
-      const grantedDeptIds = [...new Set([
-        ...personalExtraDeptRows.map((r: { department_id: string }) => r.department_id),
-        ...roleExtraDepartmentIds,
-        ...designationExtraDepartmentIds,
-      ])];
+      const grantedDeptIds = personalExtraDeptRows.map((r: { department_id: string }) => r.department_id);
 
       let deptBasedUserIds: string[] = [];
       if (grantedDeptIds.length > 0) {

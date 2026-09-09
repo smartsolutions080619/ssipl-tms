@@ -256,54 +256,26 @@ export class UsersService {
     return { userId, extraDesignationIds: designationIds };
   }
 
-  // ── "Why can this person see this?" — the computed union of a user's
-  //    personal grant, their role's grant, and their designation's grant,
-  //    broken out by source so an admin can see where each department
-  //    came from without cross-checking three separate screens. ──
+  // ── "Why can this person see this?" — this user's own extra-department
+  //    and extra-designation grants, both configured exclusively on the
+  //    Users page. Roles and Designations no longer carry a department
+  //    grant of their own — both org-wide mechanisms were retired in
+  //    favor of handling all extra task visibility per-user, in one
+  //    place. ──
   async getEffectiveAccess(userId: string) {
     const user = await this.findOne(userId);
 
-    // A role can be linked to a designation (Roles page → "Linked
-    // Designation") to share one Department Task Access list — when
-    // linked, use the linked designation's list instead of the role's own,
-    // and surface which designation it came from so the panel can say so.
-    const roleRow = user.roleId
-      ? await this.userRepo.query(
-          `SELECT r.id, r.name,
-                  COALESCE(ld.extra_department_ids, r.extra_department_ids) AS "extraDepartmentIds",
-                  ld.id   AS "linkedDesignationId",
-                  ld.name AS "linkedDesignationName"
-           FROM tenant_ssipl.roles r
-           LEFT JOIN tenant_ssipl.designations ld ON r.linked_designation_id = ld.id
-           WHERE r.id = $1`,
-          [user.roleId],
-        )
-      : [];
-    // A designation is always its own source of truth — nothing to borrow.
-    const designationRow = (user as any).designationId
-      ? await this.userRepo.query(
-          `SELECT id, name, extra_department_ids AS "extraDepartmentIds" FROM tenant_ssipl.designations WHERE id = $1`,
-          [(user as any).designationId],
-        )
-      : [];
-
-    const role = roleRow[0] || null;
-    const designation = designationRow[0] || null;
     const personalIds: string[] = user.extraDepartmentIds || [];
-    const roleIds: string[] = role?.extraDepartmentIds || [];
-    const designationIds: string[] = designation?.extraDepartmentIds || [];
-
-    const allIds = [...new Set([...personalIds, ...roleIds, ...designationIds])];
-    const deptRows = allIds.length
+    const deptRows = personalIds.length
       ? await this.userRepo.query(
           `SELECT id, name FROM tenant_ssipl.departments WHERE id = ANY($1::uuid[])`,
-          [allIds],
+          [personalIds],
         )
       : [];
     const nameOf = (id: string) => deptRows.find((d: any) => d.id === id)?.name || id;
 
-    // Separate axis from everything above — not a department grant at all,
-    // but "also see tasks touched by anyone holding these designations."
+    // Separate axis from the above — not a department grant at all, but
+    // "also see tasks touched by anyone holding these designations."
     const personalDesignationIds: string[] = user.extraDesignationIds || [];
     const desigRows = personalDesignationIds.length
       ? await this.userRepo.query(
@@ -318,18 +290,7 @@ export class UsersService {
       ownDepartmentIds: user.departmentIds || [],
       personal: personalIds.map(id => ({ id, name: nameOf(id) })),
       personalDesignations: personalDesignationIds.map(id => ({ id, name: desigNameOf(id) })),
-      role: role
-        ? {
-            id: role.id,
-            name: role.name,
-            departments: roleIds.map(id => ({ id, name: nameOf(id) })),
-            linkedDesignation: role.linkedDesignationId ? { id: role.linkedDesignationId, name: role.linkedDesignationName } : null,
-          }
-        : null,
-      designation: designation
-        ? { id: designation.id, name: designation.name, departments: designationIds.map(id => ({ id, name: nameOf(id) })) }
-        : null,
-      effective: allIds.map(id => ({ id, name: nameOf(id) })),
+      effective: personalIds.map(id => ({ id, name: nameOf(id) })),
     };
   }
 
