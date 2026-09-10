@@ -11,6 +11,9 @@ export class Designation {
   @Column({ nullable: true })
   description!: string | null;
 
+  @Column({ name: 'view_departmentless_tasks', type: 'boolean', default: false })
+  viewDepartmentlessTasks!: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
