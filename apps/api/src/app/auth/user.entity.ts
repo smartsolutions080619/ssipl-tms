@@ -47,6 +47,9 @@ export class User {
   @Column({ name: 'manager_id', nullable: true })
   managerId!: string | null;
 
+  @Column({ name: 'restrict_task_visibility', default: false })
+  restrictTaskVisibility!: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

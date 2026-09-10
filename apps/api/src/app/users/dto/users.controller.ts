@@ -128,6 +128,13 @@ export class UsersController {
     return this.usersService.setExtraDesignations(id, body.designationIds || [], user.userId);
   }
 
+  @Put(':id/restrict-task-visibility')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: "Admin only — restrict this user's tasks to Admin and Senior-designation viewers only, independent of department membership" })
+  async setRestrictTaskVisibility(@Param('id') id: string, @Body() body: { restrict: boolean }, @CurrentUser() user: any) {
+    return this.usersService.setRestrictTaskVisibility(id, !!body.restrict, user.userId);
+  }
+
   @Put(':id/password')
   @RequirePermissions(Permission.USER_UPDATE)
   @ApiOperation({ summary: "Admin — set a user's password directly (no current password needed)" })

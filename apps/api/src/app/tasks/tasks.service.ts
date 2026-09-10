@@ -90,12 +90,10 @@ export class TasksService {
       isInEveryDepartment = total > 0 && mine >= total;
     }
 
-    const departmentlessRows = await this.taskRepo.query(
-      `SELECT u.id FROM tenant_ssipl.users u
-       WHERE u.deleted_at IS NULL
-         AND NOT EXISTS (SELECT 1 FROM tenant_ssipl.user_departments ud WHERE ud.user_id = u.id)`
+    const restrictedRows = await this.taskRepo.query(
+      `SELECT id FROM tenant_ssipl.users WHERE deleted_at IS NULL AND restrict_task_visibility = true`
     );
-    const departmentlessUserIds: string[] = departmentlessRows.map((r: { id: string }) => r.id);
+    const restrictedUserIds: string[] = restrictedRows.map((r: { id: string }) => r.id);
 
     let extraVisibilityUserIds: string[] = [];
     if (!(canViewAll || roleLower === 'admin' || isInEveryDepartment)) {
@@ -134,7 +132,7 @@ export class TasksService {
       extraVisibilityUserIds = [...new Set([
         ...deptBasedUserIds,
         ...desigBasedUserIds,
-        ...(viewerIsSenior ? departmentlessUserIds : []),
+        ...(viewerIsSenior ? restrictedUserIds : []),
       ])];
     }
     const extraVisibilityClause = extraVisibilityUserIds.length > 0
@@ -145,16 +143,16 @@ export class TasksService {
     if (roleLower === 'admin') {
       // Admin bypasses all visibility rules.
     } else {
-      const hasDepartmentless = departmentlessUserIds.length > 0;
-      const departmentlessGuard = (!viewerIsSenior && hasDepartmentless)
-        ? 'NOT (task.assignee_id IN (:...departmentlessUserIds) OR task.reporter_id IN (:...departmentlessUserIds))'
+      const hasRestricted = restrictedUserIds.length > 0;
+      const restrictedGuard = (!viewerIsSenior && hasRestricted)
+        ? 'NOT (task.assignee_id IN (:...restrictedUserIds) OR task.reporter_id IN (:...restrictedUserIds))'
         : '1=1';
-      const departmentlessParams = (!viewerIsSenior && hasDepartmentless) ? { departmentlessUserIds } : {};
+      const restrictedParams = (!viewerIsSenior && hasRestricted) ? { restrictedUserIds } : {};
 
       if (canViewAll || isInEveryDepartment) {
         query.andWhere(
-          `(task.assignee_id = :userId OR task.reporter_id = :userId OR (${departmentlessGuard}))`,
-          { userId: currentUser.userId, ...departmentlessParams }
+          `(task.assignee_id = :userId OR task.reporter_id = :userId OR (${restrictedGuard}))`,
+          { userId: currentUser.userId, ...restrictedParams }
         );
       } else if (canViewDept) {
         const deptUsers = await this.taskRepo.query(
@@ -195,7 +193,7 @@ export class TasksService {
                 (task.assignee_id IN (:...deptUserIds)
                   OR task.reporter_id IN (:...deptUserIds)
                   OR task.id IN (:...rootOwnedTaskIds)${extraVisibilityClause})
-                AND ${departmentlessGuard}
+                AND ${restrictedGuard}
               ))`,
             {
               userId: currentUser.userId,
@@ -203,19 +201,19 @@ export class TasksService {
               // avoid an empty IN () which some drivers choke on
               rootOwnedTaskIds: rootOwnedTaskIds.length > 0 ? rootOwnedTaskIds : ['00000000-0000-0000-0000-000000000000'],
               ...extraVisibilityParams,
-              ...departmentlessParams,
+              ...restrictedParams,
             }
           );
         } else {
           query.andWhere(
-            `(task.assignee_id = :userId OR task.reporter_id = :userId OR ((1=0${extraVisibilityClause}) AND ${departmentlessGuard}))`,
-            { userId: currentUser.userId, ...extraVisibilityParams, ...departmentlessParams }
+            `(task.assignee_id = :userId OR task.reporter_id = :userId OR ((1=0${extraVisibilityClause}) AND ${restrictedGuard}))`,
+            { userId: currentUser.userId, ...extraVisibilityParams, ...restrictedParams }
           );
         }
       } else {
         query.andWhere(
-          `(task.assignee_id = :userId OR task.reporter_id = :userId OR ((1=0${extraVisibilityClause}) AND ${departmentlessGuard}))`,
-          { userId: currentUser.userId, ...extraVisibilityParams, ...departmentlessParams }
+          `(task.assignee_id = :userId OR task.reporter_id = :userId OR ((1=0${extraVisibilityClause}) AND ${restrictedGuard}))`,
+          { userId: currentUser.userId, ...extraVisibilityParams, ...restrictedParams }
         );
       }
     }
