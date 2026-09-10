@@ -34,6 +34,7 @@ export class UsersService {
       select: {
         id: true, email: true, firstName: true, lastName: true,
         roleId: true, departmentId: true, managerId: true, designationId: true, createdAt: true, status: true,
+        restrictTaskVisibility: true,
       },
     });
 
@@ -92,6 +93,7 @@ export class UsersService {
       select: {
         id: true, email: true, firstName: true, lastName: true,
         roleId: true, departmentId: true, managerId: true, designationId: true, createdAt: true, status: true,
+        restrictTaskVisibility: true,
       },
     });
     if (!user) throw new NotFoundException(`User with id ${id} not found`);
@@ -224,6 +226,25 @@ export class UsersService {
     }
 
     return { userId, extraDesignationIds: designationIds };
+  }
+
+  async setRestrictTaskVisibility(userId: string, restrict: boolean, actorId: string) {
+    const target = await this.findOne(userId); // throws 404 if user doesn't exist
+    const before = !!(target as any).restrictTaskVisibility;
+
+    await this.userRepo.update(userId, { restrictTaskVisibility: restrict });
+
+    if (before !== restrict) {
+      await this.activityLogService.log(
+        actorId,
+        ActivityAction.TASK_VISIBILITY_RESTRICTION_CHANGED,
+        undefined,
+        { scope: 'user', targetUserId: userId, restrictTaskVisibility: before },
+        { scope: 'user', targetUserId: userId, restrictTaskVisibility: restrict },
+      );
+    }
+
+    return { userId, restrictTaskVisibility: restrict };
   }
 
   // ── Approve pending user ──
