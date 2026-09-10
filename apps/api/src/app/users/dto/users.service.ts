@@ -24,7 +24,6 @@ export class UsersService {
     private readonly activityLogService: ActivityLogService,
   ) {}
 
-  // ── Fire-and-forget helper ──
   private bgMail(fn: () => Promise<any>) {
     fn().catch(err => console.error('[UsersService] Mail failed:', err?.message));
   }
@@ -38,8 +37,6 @@ export class UsersService {
       },
     });
 
-    // Attach the full list of departments each user belongs to
-    // (a user can now be in multiple departments, not just one).
     const rows = await this.userRepo.query(
       `SELECT user_id, department_id FROM tenant_ssipl.user_departments`
     );
@@ -50,8 +47,6 @@ export class UsersService {
       deptMap.set(r.user_id, list);
     }
 
-    // Same, for the optional extra task-visibility grant (which departments'
-    // tasks this user can additionally see, on top of org membership).
     const extraRows = await this.userRepo.query(
       `SELECT viewer_user_id, department_id FROM tenant_ssipl.user_extra_departments`
     );
@@ -62,9 +57,6 @@ export class UsersService {
       extraDeptMap.set(r.viewer_user_id, list);
     }
 
-    // Same again, for the optional extra task-visibility grant keyed off
-    // DESIGNATION instead of department — "let this person also see tasks
-    // touched by anyone holding designation X," regardless of department.
     const extraDesigRows = await this.userRepo.query(
       `SELECT viewer_user_id, designation_id FROM tenant_ssipl.user_extra_designations`
     );
@@ -118,7 +110,6 @@ export class UsersService {
     return { ...user, departmentIds, extraDepartmentIds, extraDesignationIds };
   }
 
-  // ── Get just the department IDs a user belongs to ──
   async getUserDepartments(userId: string): Promise<string[]> {
     const rows = await this.userRepo.query(
       `SELECT department_id FROM tenant_ssipl.user_departments WHERE user_id = $1`,
@@ -127,7 +118,6 @@ export class UsersService {
     return rows.map((r: any) => r.department_id);
   }
 
-  // ── Replace a user's full set of department memberships ──
   async setUserDepartments(userId: string, departmentIds: string[]) {
     await this.findOne(userId); // throws 404 if user doesn't exist
 
@@ -144,8 +134,6 @@ export class UsersService {
       );
     }
 
-    // Keep the legacy single department_id column pointing at the first
-    // department, so any old code that still reads it doesn't break.
     await this.userRepo.query(
       `UPDATE tenant_ssipl.users SET department_id = $1 WHERE id = $2`,
       [departmentIds[0] || null, userId]
@@ -154,12 +142,6 @@ export class UsersService {
     return { userId, departmentIds };
   }
 
-  // ── Extra task-visibility grants (admin-configured, optional) ──
-  //    Distinct from setUserDepartments above: this never touches org
-  //    membership, only which OTHER departments' tasks this user may
-  //    additionally see. See tasks.service.ts findAll() for how it's
-  //    applied — purely additive to whatever hierarchy visibility the
-  //    user's role already grants.
   async getExtraDepartments(userId: string): Promise<string[]> {
     const rows = await this.userRepo.query(
       `SELECT department_id FROM tenant_ssipl.user_extra_departments WHERE viewer_user_id = $1`,
@@ -185,10 +167,6 @@ export class UsersService {
       );
     }
 
-    // Audit trail — who gave/removed which department-task-visibility grant,
-    // and when. Skipped only for the create-user flow, which has no actor
-    // yet resolvable at that point (it's the same request as the account
-    // being created) — the grant is still visible on the account itself.
     if (actorId) {
       const before_ = [...before].sort();
       const after_ = [...departmentIds].sort();
@@ -206,12 +184,6 @@ export class UsersService {
     return { userId, extraDepartmentIds: departmentIds };
   }
 
-  // ── Extra task-visibility grants keyed off DESIGNATION instead of
-  //    department (admin-configured, optional) ── "let this person also
-  //    see tasks touched by anyone holding designation X" — e.g. every
-  //    "Team Lead," regardless of which department they're actually in.
-  //    Set at user creation/approval or edit time. Purely additive, same
-  //    combining rule as everything else in tasks.service.ts findAll().
   async getExtraDesignations(userId: string): Promise<string[]> {
     const rows = await this.userRepo.query(
       `SELECT designation_id FROM tenant_ssipl.user_extra_designations WHERE viewer_user_id = $1`,
@@ -237,8 +209,6 @@ export class UsersService {
       );
     }
 
-    // Same audit-trail rule as setExtraDepartments — skipped only on the
-    // create-user flow, which has no separate actor to attribute yet.
     if (actorId) {
       const before_ = [...before].sort();
       const after_ = [...designationIds].sort();
@@ -254,44 +224,6 @@ export class UsersService {
     }
 
     return { userId, extraDesignationIds: designationIds };
-  }
-
-  // ── "Why can this person see this?" — this user's own extra-department
-  //    and extra-designation grants, both configured exclusively on the
-  //    Users page. Roles and Designations no longer carry a department
-  //    grant of their own — both org-wide mechanisms were retired in
-  //    favor of handling all extra task visibility per-user, in one
-  //    place. ──
-  async getEffectiveAccess(userId: string) {
-    const user = await this.findOne(userId);
-
-    const personalIds: string[] = user.extraDepartmentIds || [];
-    const deptRows = personalIds.length
-      ? await this.userRepo.query(
-          `SELECT id, name FROM tenant_ssipl.departments WHERE id = ANY($1::uuid[])`,
-          [personalIds],
-        )
-      : [];
-    const nameOf = (id: string) => deptRows.find((d: any) => d.id === id)?.name || id;
-
-    // Separate axis from the above — not a department grant at all, but
-    // "also see tasks touched by anyone holding these designations."
-    const personalDesignationIds: string[] = user.extraDesignationIds || [];
-    const desigRows = personalDesignationIds.length
-      ? await this.userRepo.query(
-          `SELECT id, name FROM tenant_ssipl.designations WHERE id = ANY($1::uuid[])`,
-          [personalDesignationIds],
-        )
-      : [];
-    const desigNameOf = (id: string) => desigRows.find((d: any) => d.id === id)?.name || id;
-
-    return {
-      userId,
-      ownDepartmentIds: user.departmentIds || [],
-      personal: personalIds.map(id => ({ id, name: nameOf(id) })),
-      personalDesignations: personalDesignationIds.map(id => ({ id, name: desigNameOf(id) })),
-      effective: personalIds.map(id => ({ id, name: nameOf(id) })),
-    };
   }
 
   // ── Approve pending user ──
@@ -391,15 +323,6 @@ export class UsersService {
     return { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, roleId: user.roleId, departmentId: user.departmentId, managerId: user.managerId, isActive: user.isActive };
   }
 
-  // ── Permanently delete a user (admin "Delete" button) ──
-  //    A true hard delete, not a soft one — the old isActive/deletedAt
-  //    flip left the row (and its unique email) sitting in the table
-  //    forever, so re-registering that same email as a new user always
-  //    hit a "User with this email already exists" conflict. Nothing
-  //    else in this schema has a real FK onto users (every user_id
-  //    column elsewhere is a bare uuid), so removing the row is safe —
-  //    historical tasks/leaves/comments/activity just keep the dangling
-  //    id, which their existing LEFT JOINs already render as blank.
   async remove(id: string) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`User with id ${id} not found`);
@@ -437,8 +360,6 @@ export class UsersService {
     );
     if (!user) return user;
 
-    // A user can belong to multiple departments — include the full list,
-    // same as findOne(), so the profile page isn't stuck showing only one.
     const rows = await this.userRepo.query(
       `SELECT department_id FROM tenant_ssipl.user_departments WHERE user_id = $1`,
       [userId]
@@ -485,13 +406,6 @@ export class UsersService {
     return { message: 'Password changed successfully' };
   }
 
-  // ── Admin sets another user's password directly (no current password
-  //    needed — that's the whole point of an admin reset). Passwords are
-  //    bcrypt hashes, one-way by design: there is no plaintext to show or
-  //    recover, for this user or anyone else. What we *can* do is bcrypt-
-  //    compare the proposed new password against the stored hash, so the
-  //    admin can't accidentally "reset" it to the same password it
-  //    already is. ──
   async adminSetPassword(userId: string, newPassword: string) {
     if (!newPassword || newPassword.length < 6) {
       throw new BadRequestException('Password must be at least 6 characters.');

@@ -11,10 +11,8 @@ export class DesignationsService {
   ) {}
 
   async findAll() {
-    // Includes how many users currently hold each designation — handy for
-    // the frontend to show a count and to warn before deleting one in use.
     return this.repo.query(`
-      SELECT d.*, COUNT(u.id)::int AS user_count
+      SELECT d.*, d.view_departmentless_tasks AS "viewDepartmentlessTasks", COUNT(u.id)::int AS user_count
       FROM tenant_ssipl.designations d
       LEFT JOIN tenant_ssipl.users u ON u.designation_id = d.id AND u.deleted_at IS NULL
       GROUP BY d.id
@@ -28,36 +26,33 @@ export class DesignationsService {
     return designation;
   }
 
-  async create(dto: { name: string; description?: string }) {
+  async create(dto: { name: string; description?: string; viewDepartmentlessTasks?: boolean }) {
     const existing = await this.repo.findOne({ where: { name: dto.name } });
     if (existing) throw new ConflictException('A designation with this name already exists');
 
     const designation = this.repo.create({
       name: dto.name.trim(),
       description: dto.description?.trim() || null,
+      viewDepartmentlessTasks: dto.viewDepartmentlessTasks ?? false,
     });
     return this.repo.save(designation);
   }
 
-  async update(id: string, dto: { name?: string; description?: string }) {
+  async update(id: string, dto: { name?: string; description?: string; viewDepartmentlessTasks?: boolean }) {
     const designation = await this.findOne(id);
     if (dto.name !== undefined) designation.name = dto.name.trim();
     if (dto.description !== undefined) designation.description = dto.description?.trim() || null;
+    if (dto.viewDepartmentlessTasks !== undefined) designation.viewDepartmentlessTasks = dto.viewDepartmentlessTasks;
     return this.repo.save(designation);
   }
 
   async remove(id: string) {
-    await this.findOne(id); // 404 if missing
+    await this.findOne(id);
 
-    // Clear the designation off any users holding it first, so deleting
-    // never leaves a dangling reference on someone's profile.
     await this.repo.query(
       `UPDATE tenant_ssipl.users SET designation_id = NULL WHERE designation_id = $1`,
       [id]
     );
-    // Same for anyone who was granted extra task visibility into this
-    // designation's holders (Users page → per-user designation grant) —
-    // otherwise the grant silently stops resolving to anyone.
     await this.repo.query(
       `DELETE FROM tenant_ssipl.user_extra_designations WHERE designation_id = $1`,
       [id]

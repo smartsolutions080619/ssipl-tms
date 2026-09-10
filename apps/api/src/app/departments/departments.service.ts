@@ -84,13 +84,6 @@ import {
         throw new BadRequestException('Cannot delete department with sub-departments');
       }
 
-      // Scrub the one remaining place that can reference this department
-      // by ID before dropping the row (roles.extra_department_ids and
-      // designations.extra_department_ids were retired and dropped
-      // entirely — see migrations 1000000000021/1000000000022 — so
-      // per-user grants are now the only thing left to clean up here).
-      // Not a real DB foreign key, so nothing would ever error on its
-      // own — the risk is a stale ID silently sitting in a grant forever.
       await this.deptRepo.query(
         `DELETE FROM tenant_ssipl.user_extra_departments WHERE department_id = $1`,
         [id],

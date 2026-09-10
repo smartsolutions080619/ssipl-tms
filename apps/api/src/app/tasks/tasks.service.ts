@@ -64,14 +64,11 @@ export class TasksService {
 
     if (!currentUser) return [];
 
-    // ── Fetch this user's role permissions. Neither Roles nor Designations
-    //    carry a department grant of their own anymore — both org-wide
-    //    mechanisms were retired in favor of handling all extra task
-    //    visibility from the Users page alone (see the block below). ──
     const roleResult = await this.taskRepo.query(
-      `SELECT r.permissions
+      `SELECT r.permissions, des.view_departmentless_tasks AS "viewDepartmentlessTasks"
        FROM tenant_ssipl.users u
-       LEFT JOIN tenant_ssipl.roles r ON u.role_id = r.id
+       LEFT JOIN tenant_ssipl.roles r          ON u.role_id = r.id
+       LEFT JOIN tenant_ssipl.designations des ON u.designation_id = des.id
        WHERE u.id = $1 LIMIT 1`,
       [currentUser.userId]
     );
@@ -80,14 +77,8 @@ export class TasksService {
     const canViewAll  = permissions.includes('task:view_all');
     const canViewDept = permissions.includes('task:view_department');
     const roleLower   = currentUser.role?.toLowerCase() || '';
+    const viewerIsSenior = roleLower === 'admin' || roleResult?.[0]?.viewDepartmentlessTasks === true;
 
-    // ── "All" departments on the Users page means org-wide task
-    //    visibility, same as task:view_all — a person assigned to every
-    //    department should see every employee's tasks, not just the
-    //    department-overlap subset canViewDept would otherwise compute
-    //    (which happens to equal "everyone" here, but only for roles
-    //    that already carry task:view_department; this makes it
-    //    unconditional on the department assignment alone). ──
     let isInEveryDepartment = false;
     if (!canViewAll && roleLower !== 'admin') {
       const [{ total, mine }] = await this.taskRepo.query(
@@ -99,25 +90,13 @@ export class TasksService {
       isInEveryDepartment = total > 0 && mine >= total;
     }
 
-    // ── Admin-granted extra visibility (optional, additive) — two
-    //    sources, both per-user and both configured exclusively from the
-    //    Users page (Roles and Designations no longer carry a grant of
-    //    their own):
-    //    1. By department ("Additional Task Visibility") — sees tasks
-    //       touched by anyone in the granted department(s).
-    //    2. By designation ("Designation Task Access") — sees tasks
-    //       touched by anyone holding the granted designation(s),
-    //       regardless of that person's department. A different axis
-    //       from #1: it never looks at user_departments at all, only who
-    //       currently holds the granted designation(s).
-    //    Neither makes the viewer an org member of the granted department
-    //    (that's user_departments/deptUserIds above) — this only ever
-    //    ADDS to whichever visibility tier the role's permissions already
-    //    grant, folded into every branch's WHERE clause below via
-    //    extraVisibilityClause/-Params. Deliberately does NOT extend to
-    //    the chain-of-custody rule (3) further down: an extra grant sees
-    //    current tasks, not the full forwarding history other managers
-    //    get for their own department. ──
+    const departmentlessRows = await this.taskRepo.query(
+      `SELECT u.id FROM tenant_ssipl.users u
+       WHERE u.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM tenant_ssipl.user_departments ud WHERE ud.user_id = u.id)`
+    );
+    const departmentlessUserIds: string[] = departmentlessRows.map((r: { id: string }) => r.id);
+
     let extraVisibilityUserIds: string[] = [];
     if (!(canViewAll || roleLower === 'admin' || isInEveryDepartment)) {
       const personalExtraDeptRows = await this.taskRepo.query(
@@ -152,94 +131,93 @@ export class TasksService {
         desigBasedUserIds = extraDesigUsers.map((u: { id: string }) => u.id);
       }
 
-      extraVisibilityUserIds = [...new Set([...deptBasedUserIds, ...desigBasedUserIds])];
+      extraVisibilityUserIds = [...new Set([
+        ...deptBasedUserIds,
+        ...desigBasedUserIds,
+        ...(viewerIsSenior ? departmentlessUserIds : []),
+      ])];
     }
     const extraVisibilityClause = extraVisibilityUserIds.length > 0
       ? ' OR task.assignee_id IN (:...extraVisibilityUserIds) OR task.reporter_id IN (:...extraVisibilityUserIds)'
       : '';
     const extraVisibilityParams = extraVisibilityUserIds.length > 0 ? { extraVisibilityUserIds } : {};
 
-    if (canViewAll || roleLower === 'admin' || isInEveryDepartment) {
-      // ── Can see ALL tasks ──
-    } else if (canViewDept) {
-      // ── Dept-visibility roles (Manager, Senior Executive, MD, CEO, etc. —
-      //    whichever roles have been granted the task:view_department
-      //    permission from the Roles page) see:
-      //    1. Own dept members' tasks (as before)
-      //    2. Tasks currently assigned TO any of own dept members — even if
-      //       the task originated in another dept (transient: only while
-      //       their employee is the CURRENT holder)
-      //    3. Every task in a forward/subtask chain that was ORIGINALLY
-      //       owned by their dept — permanent "chain of custody" visibility
-      //       for the manager whose employee is the root of the chain,
-      //       even after it's been forwarded through other departments
-      //       and back. This does NOT extend to other managers whose
-      //       employees only touched it as an intermediate hop.
-      // Find every department the current user belongs to (now that a user
-      // can be in multiple departments), then find everyone else who
-      // shares at least one of those departments.
-      const deptUsers = await this.taskRepo.query(
-        `SELECT DISTINCT u.id FROM tenant_ssipl.users u
-         WHERE u.deleted_at IS NULL
-           AND EXISTS (
-             SELECT 1 FROM tenant_ssipl.user_departments ud_self
-             JOIN tenant_ssipl.user_departments ud_other
-               ON ud_other.department_id = ud_self.department_id
-             WHERE ud_self.user_id = $1 AND ud_other.user_id = u.id
-           )`,
-        [currentUser.userId]
-      );
-      const deptUserIds = deptUsers.map((u: { id: string }) => u.id);
+    if (roleLower === 'admin') {
+      // Admin bypasses all visibility rules.
+    } else {
+      const hasDepartmentless = departmentlessUserIds.length > 0;
+      const departmentlessGuard = (!viewerIsSenior && hasDepartmentless)
+        ? 'NOT (task.assignee_id IN (:...departmentlessUserIds) OR task.reporter_id IN (:...departmentlessUserIds))'
+        : '1=1';
+      const departmentlessParams = (!viewerIsSenior && hasDepartmentless) ? { departmentlessUserIds } : {};
 
-      if (deptUserIds.length > 0) {
-        // Walk every task's parentTaskId chain up to its root ancestor and
-        // find which tasks' root was originally assigned to someone in
-        // this manager's department — that's rule 3 above.
-        const rootOwnedRows = await this.taskRepo.query(
-          `
-          WITH RECURSIVE task_lineage AS (
-            SELECT id, parent_task_id, assignee_id AS root_assignee_id
-            FROM tenant_ssipl.tasks
-            WHERE parent_task_id IS NULL
-
-            UNION ALL
-
-            SELECT t.id, t.parent_task_id, tl.root_assignee_id
-            FROM tenant_ssipl.tasks t
-            JOIN task_lineage tl ON t.parent_task_id = tl.id
-          )
-          SELECT id FROM task_lineage WHERE root_assignee_id = ANY($1)
-          `,
-          [deptUserIds]
-        );
-        const rootOwnedTaskIds: string[] = rootOwnedRows.map((r: { id: string }) => r.id);
-
+      if (canViewAll || isInEveryDepartment) {
         query.andWhere(
-          `(task.assignee_id = :userId
-            OR task.reporter_id = :userId
-            OR task.assignee_id IN (:...deptUserIds)
-            OR task.reporter_id IN (:...deptUserIds)
-            OR task.id IN (:...rootOwnedTaskIds)${extraVisibilityClause})`,
-          {
-            userId: currentUser.userId,
-            deptUserIds,
-            // avoid an empty IN () which some drivers choke on
-            rootOwnedTaskIds: rootOwnedTaskIds.length > 0 ? rootOwnedTaskIds : ['00000000-0000-0000-0000-000000000000'],
-            ...extraVisibilityParams,
-          }
+          `(task.assignee_id = :userId OR task.reporter_id = :userId OR (${departmentlessGuard}))`,
+          { userId: currentUser.userId, ...departmentlessParams }
         );
+      } else if (canViewDept) {
+        const deptUsers = await this.taskRepo.query(
+          `SELECT DISTINCT u.id FROM tenant_ssipl.users u
+           WHERE u.deleted_at IS NULL
+             AND EXISTS (
+               SELECT 1 FROM tenant_ssipl.user_departments ud_self
+               JOIN tenant_ssipl.user_departments ud_other
+                 ON ud_other.department_id = ud_self.department_id
+               WHERE ud_self.user_id = $1 AND ud_other.user_id = u.id
+             )`,
+          [currentUser.userId]
+        );
+        const deptUserIds = deptUsers.map((u: { id: string }) => u.id);
+
+        if (deptUserIds.length > 0) {
+          const rootOwnedRows = await this.taskRepo.query(
+            `
+            WITH RECURSIVE task_lineage AS (
+              SELECT id, parent_task_id, assignee_id AS root_assignee_id
+              FROM tenant_ssipl.tasks
+              WHERE parent_task_id IS NULL
+
+              UNION ALL
+
+              SELECT t.id, t.parent_task_id, tl.root_assignee_id
+              FROM tenant_ssipl.tasks t
+              JOIN task_lineage tl ON t.parent_task_id = tl.id
+            )
+            SELECT id FROM task_lineage WHERE root_assignee_id = ANY($1)
+            `,
+            [deptUserIds]
+          );
+          const rootOwnedTaskIds: string[] = rootOwnedRows.map((r: { id: string }) => r.id);
+
+          query.andWhere(
+            `(task.assignee_id = :userId OR task.reporter_id = :userId OR (
+                (task.assignee_id IN (:...deptUserIds)
+                  OR task.reporter_id IN (:...deptUserIds)
+                  OR task.id IN (:...rootOwnedTaskIds)${extraVisibilityClause})
+                AND ${departmentlessGuard}
+              ))`,
+            {
+              userId: currentUser.userId,
+              deptUserIds,
+              // avoid an empty IN () which some drivers choke on
+              rootOwnedTaskIds: rootOwnedTaskIds.length > 0 ? rootOwnedTaskIds : ['00000000-0000-0000-0000-000000000000'],
+              ...extraVisibilityParams,
+              ...departmentlessParams,
+            }
+          );
+        } else {
+          query.andWhere(
+            `(task.assignee_id = :userId OR task.reporter_id = :userId OR ((1=0${extraVisibilityClause}) AND ${departmentlessGuard}))`,
+            { userId: currentUser.userId, ...extraVisibilityParams, ...departmentlessParams }
+          );
+        }
       } else {
         query.andWhere(
-          `(task.assignee_id = :userId OR task.reporter_id = :userId${extraVisibilityClause})`,
-          { userId: currentUser.userId, ...extraVisibilityParams }
+          `(task.assignee_id = :userId OR task.reporter_id = :userId OR ((1=0${extraVisibilityClause}) AND ${departmentlessGuard}))`,
+          { userId: currentUser.userId, ...extraVisibilityParams, ...departmentlessParams }
         );
       }
-    } else {
-      // ── Employee — only own tasks (plus any extra grant) ──
-      query.andWhere(
-        `(task.assignee_id = :userId OR task.reporter_id = :userId${extraVisibilityClause})`,
-        { userId: currentUser.userId, ...extraVisibilityParams }
-      );
     }
 
     // Apply filters

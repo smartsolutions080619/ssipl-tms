@@ -128,13 +128,6 @@ export class UsersController {
     return this.usersService.setExtraDesignations(id, body.designationIds || [], user.userId);
   }
 
-  @Get(':id/effective-access')
-  @RequirePermissions(Permission.USER_READ)
-  @ApiOperation({ summary: "Admin — the computed union of this user's personal, role, and designation department-task-visibility grants, broken out by source" })
-  async getEffectiveAccess(@Param('id') id: string) {
-    return this.usersService.getEffectiveAccess(id);
-  }
-
   @Put(':id/password')
   @RequirePermissions(Permission.USER_UPDATE)
   @ApiOperation({ summary: "Admin — set a user's password directly (no current password needed)" })

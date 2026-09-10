@@ -28,14 +28,14 @@ export class DesignationsController {
   @Post()
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Create a new designation (Admin only)' })
-  async create(@Body() dto: { name: string; description?: string }) {
+  async create(@Body() dto: { name: string; description?: string; viewDepartmentlessTasks?: boolean }) {
     return this.designationsService.create(dto);
   }
 
   @Put(':id')
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Update a designation (Admin only)' })
-  async update(@Param('id') id: string, @Body() dto: { name?: string; description?: string }) {
+  async update(@Param('id') id: string, @Body() dto: { name?: string; description?: string; viewDepartmentlessTasks?: boolean }) {
     return this.designationsService.update(id, dto);
   }
 
