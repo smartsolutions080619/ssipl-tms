@@ -238,6 +238,62 @@ export class TasksService {
           '(task.assignee_id = :userId OR task.reporter_id = :userId OR task.assignee_id IN (:...visibleUserIds) OR task.reporter_id IN (:...visibleUserIds))',
           { userId: currentUser.userId, visibleUserIds },
         );
+      } else if (canViewDept) {
+        const deptUsers = await this.taskRepo.query(
+          `SELECT DISTINCT u.id FROM tenant_ssipl.users u
+           WHERE u.deleted_at IS NULL
+             AND EXISTS (
+               SELECT 1 FROM tenant_ssipl.user_departments ud_self
+               JOIN tenant_ssipl.user_departments ud_other
+                 ON ud_other.department_id = ud_self.department_id
+               WHERE ud_self.user_id = $1 AND ud_other.user_id = u.id
+             )`,
+          [currentUser.userId]
+        );
+        const deptUserIds = deptUsers.map((u: { id: string }) => u.id);
+
+        if (deptUserIds.length > 0) {
+          const rootOwnedRows = await this.taskRepo.query(
+            `
+            WITH RECURSIVE task_lineage AS (
+              SELECT id, parent_task_id, assignee_id AS root_assignee_id
+              FROM tenant_ssipl.tasks
+              WHERE parent_task_id IS NULL
+
+              UNION ALL
+
+              SELECT t.id, t.parent_task_id, tl.root_assignee_id
+              FROM tenant_ssipl.tasks t
+              JOIN task_lineage tl ON t.parent_task_id = tl.id
+            )
+            SELECT id FROM task_lineage WHERE root_assignee_id = ANY($1)
+            `,
+            [deptUserIds]
+          );
+          const rootOwnedTaskIds: string[] = rootOwnedRows.map((r: { id: string }) => r.id);
+
+          query.andWhere(
+            `(task.assignee_id = :userId OR task.reporter_id = :userId OR (
+                (task.assignee_id IN (:...deptUserIds)
+                  OR task.reporter_id IN (:...deptUserIds)
+                  OR task.id IN (:...rootOwnedTaskIds)${extraVisibilityClause})
+                AND ${restrictedGuard}
+              ))`,
+            {
+              userId: currentUser.userId,
+              deptUserIds,
+              // avoid an empty IN () which some drivers choke on
+              rootOwnedTaskIds: rootOwnedTaskIds.length > 0 ? rootOwnedTaskIds : ['00000000-0000-0000-0000-000000000000'],
+              ...extraVisibilityParams,
+              ...restrictedParams,
+            }
+          );
+        } else {
+          query.andWhere(
+            `(task.assignee_id = :userId OR task.reporter_id = :userId OR ((1=0${extraVisibilityClause}) AND ${restrictedGuard}))`,
+            { userId: currentUser.userId, ...extraVisibilityParams, ...restrictedParams }
+          );
+        }
       } else {
         query.andWhere(
           '(task.assignee_id = :userId OR task.reporter_id = :userId)',
