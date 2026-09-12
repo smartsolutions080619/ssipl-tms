@@ -64,6 +64,14 @@ export class TasksService {
 
     if (!currentUser) return [];
 
+    const roleLower = currentUser.role?.toLowerCase() || '';
+
+    /* ─────────────────────────────────────────────────────────────────────
+     * LEGACY VISIBILITY ENGINE — disabled, superseded by explicit per-user
+     * "Task View Visibility" selection (user_task_visibility table, below).
+     * Kept here for reference only; not read by findAll() anymore.
+     * ─────────────────────────────────────────────────────────────────────
+
     const roleResult = await this.taskRepo.query(
       `SELECT r.permissions, des.view_departmentless_tasks AS "viewDepartmentlessTasks"
        FROM tenant_ssipl.users u
@@ -76,7 +84,6 @@ export class TasksService {
     const permissions: string[] = roleResult?.[0]?.permissions || [];
     const canViewAll  = permissions.includes('task:view_all');
     const canViewDept = permissions.includes('task:view_department');
-    const roleLower   = currentUser.role?.toLowerCase() || '';
     const viewerIsSenior = roleLower === 'admin' || roleResult?.[0]?.viewDepartmentlessTasks === true;
 
     let isInEveryDepartment = false;
@@ -217,6 +224,28 @@ export class TasksService {
         );
       }
     }
+    * ─── END LEGACY VISIBILITY ENGINE ─────────────────────────────────── */
+
+    if (roleLower !== 'admin') {
+      const visibleRows = await this.taskRepo.query(
+        `SELECT target_user_id FROM tenant_ssipl.user_task_visibility WHERE viewer_id = $1`,
+        [currentUser.userId]
+      );
+      const visibleUserIds: string[] = visibleRows.map((r: { target_user_id: string }) => r.target_user_id);
+
+      if (visibleUserIds.length > 0) {
+        query.andWhere(
+          '(task.assignee_id = :userId OR task.reporter_id = :userId OR task.assignee_id IN (:...visibleUserIds) OR task.reporter_id IN (:...visibleUserIds))',
+          { userId: currentUser.userId, visibleUserIds },
+        );
+      } else {
+        query.andWhere(
+          '(task.assignee_id = :userId OR task.reporter_id = :userId)',
+          { userId: currentUser.userId },
+        );
+      }
+    }
+    // Admin bypasses all visibility rules — no filter applied.
 
     // Apply filters
     if (filters?.status)     query.andWhere('task.status = :status',           { status: filters.status });

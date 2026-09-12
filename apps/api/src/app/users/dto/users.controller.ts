@@ -135,6 +135,13 @@ export class UsersController {
     return this.usersService.setRestrictTaskVisibility(id, !!body.restrict, user.userId);
   }
 
+  @Put(':id/task-visibility')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: "Admin only — set exactly which other users' tasks this user is allowed to view; their own tasks are always visible regardless of this list" })
+  async setTaskVisibility(@Param('id') id: string, @Body() body: { userIds: string[] }, @CurrentUser() user: any) {
+    return this.usersService.setTaskVisibility(id, body.userIds || [], user.userId);
+  }
+
   @Put(':id/password')
   @RequirePermissions(Permission.USER_UPDATE)
   @ApiOperation({ summary: "Admin — set a user's password directly (no current password needed)" })
