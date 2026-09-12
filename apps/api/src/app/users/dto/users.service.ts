@@ -68,11 +68,22 @@ export class UsersService {
       extraDesigMap.set(r.viewer_user_id, list);
     }
 
+    const visibilityRows = await this.userRepo.query(
+      `SELECT viewer_id, target_user_id FROM tenant_ssipl.user_task_visibility`
+    );
+    const visibilityMap = new Map<string, string[]>();
+    for (const r of visibilityRows) {
+      const list = visibilityMap.get(r.viewer_id) || [];
+      list.push(r.target_user_id);
+      visibilityMap.set(r.viewer_id, list);
+    }
+
     return users.map(u => ({
       ...u,
       departmentIds: deptMap.get(u.id) || (u.departmentId ? [u.departmentId] : []),
       extraDepartmentIds: extraDeptMap.get(u.id) || [],
       extraDesignationIds: extraDesigMap.get(u.id) || [],
+      visibleUserIds: visibilityMap.get(u.id) || [],
     }));
   }
 
@@ -108,8 +119,9 @@ export class UsersService {
 
     const extraDepartmentIds = await this.getExtraDepartments(id);
     const extraDesignationIds = await this.getExtraDesignations(id);
+    const visibleUserIds = await this.getTaskVisibility(id);
 
-    return { ...user, departmentIds, extraDepartmentIds, extraDesignationIds };
+    return { ...user, departmentIds, extraDepartmentIds, extraDesignationIds, visibleUserIds };
   }
 
   async getUserDepartments(userId: string): Promise<string[]> {
@@ -245,6 +257,46 @@ export class UsersService {
     }
 
     return { userId, restrictTaskVisibility: restrict };
+  }
+
+  async getTaskVisibility(userId: string): Promise<string[]> {
+    const rows = await this.userRepo.query(
+      `SELECT target_user_id FROM tenant_ssipl.user_task_visibility WHERE viewer_id = $1`,
+      [userId]
+    );
+    return rows.map((r: any) => r.target_user_id);
+  }
+
+  async setTaskVisibility(userId: string, targetUserIds: string[], actorId: string) {
+    await this.findOne(userId); // throws 404 if user doesn't exist
+    const before = await this.getTaskVisibility(userId);
+
+    await this.userRepo.query(
+      `DELETE FROM tenant_ssipl.user_task_visibility WHERE viewer_id = $1`,
+      [userId]
+    );
+
+    if (targetUserIds.length > 0) {
+      const values = targetUserIds.map((_, i) => `($1, $${i + 2})`).join(', ');
+      await this.userRepo.query(
+        `INSERT INTO tenant_ssipl.user_task_visibility (viewer_id, target_user_id) VALUES ${values}`,
+        [userId, ...targetUserIds]
+      );
+    }
+
+    const before_ = [...before].sort();
+    const after_ = [...targetUserIds].sort();
+    if (JSON.stringify(before_) !== JSON.stringify(after_)) {
+      await this.activityLogService.log(
+        actorId,
+        ActivityAction.TASK_VIEW_VISIBILITY_CHANGED,
+        undefined,
+        { scope: 'user', targetUserId: userId, visibleUserIds: before },
+        { scope: 'user', targetUserId: userId, visibleUserIds: targetUserIds },
+      );
+    }
+
+    return { userId, visibleUserIds: targetUserIds };
   }
 
   // ── Approve pending user ──
