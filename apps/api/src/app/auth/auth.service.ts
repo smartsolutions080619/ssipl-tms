@@ -41,19 +41,26 @@ export class AuthService {
     });
     await this.userRepo.save(user);
 
-    // ── Fire-and-forget: respond immediately, send emails in background.
-    //    No await — admin emails never block the registration response. ──
+    // ── Fire-and-forget: respond immediately, notify admins in background.
+    //    No await — admin email/notification never blocks the registration response. ──
     this.userRepo.query(
-      `SELECT u.email, u.first_name FROM tenant_ssipl.users u
+      `SELECT u.id, u.email, u.first_name FROM tenant_ssipl.users u
        INNER JOIN tenant_ssipl.roles r ON r.id::text = u.role_id::text
        WHERE LOWER(r.name) = 'admin' AND u.status = 'ACTIVE' AND u.deleted_at IS NULL`
     ).then((admins: any[]) =>
-      Promise.all(admins.map(admin =>
+      Promise.all(admins.map(admin => Promise.all([
         this.mailService.sendNewUserRequest(
           admin.email, admin.first_name,
           `${user.firstName} ${user.lastName}`, user.email,
-        )
-      ))
+        ),
+        this.notificationsService.create(
+          admin.id,
+          'New User Registration',
+          `${user.firstName} ${user.lastName} (${user.email}) has requested access and is awaiting approval.`,
+          { type: 'USER_REGISTERED' },
+          '/users',
+        ),
+      ])))
     ).catch(err =>
       console.error('[AuthService] Admin notification failed:', err?.message)
     );

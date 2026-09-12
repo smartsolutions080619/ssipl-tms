@@ -16,6 +16,7 @@ export enum NotificationType {
   LEAVE_REJECTED  = 'LEAVE_REJECTED',
   TASK_REJECTED   = 'TASK_REJECTED',
   ANNOUNCEMENT    = 'ANNOUNCEMENT',
+  USER_REGISTERED = 'USER_REGISTERED',
 }
 
 @Entity({ name: 'notifications' })
