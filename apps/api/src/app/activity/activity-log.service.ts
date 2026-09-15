@@ -97,22 +97,29 @@ export class ActivityLogService {
     taskId?: string;
     limit?: number;
   }) {
-    const query = this.activityRepo.createQueryBuilder('log')
-      .orderBy('log.created_at', 'DESC')
-      .take(filters.limit || 100);
+    
+    const params: (string | number)[] = [];
+    const conditions: string[] = [];
 
-    if (filters.userId) {
-      query.andWhere('log.user_id = :userId', { userId: filters.userId });
-    }
+    if (filters.userId) { params.push(filters.userId); conditions.push(`log.user_id = $${params.length}`); }
+    if (filters.action) { params.push(filters.action); conditions.push(`log.action = $${params.length}`); }
+    if (filters.taskId) { params.push(filters.taskId); conditions.push(`log.task_id = $${params.length}`); }
 
-    if (filters.action) {
-      query.andWhere('log.action = :action', { action: filters.action });
-    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    params.push(filters.limit || 100);
 
-    if (filters.taskId) {
-      query.andWhere('log.task_id = :taskId', { taskId: filters.taskId });
-    }
-
-    return query.getMany();
+    return this.activityRepo.manager.query(
+      `
+      SELECT
+        log.id, log.task_id, log.user_id, log.action, log.old_value, log.new_value, log.created_at,
+        u.first_name, u.last_name
+      FROM tenant_ssipl.activity_logs log
+      LEFT JOIN tenant_ssipl.users u ON u.id = log.user_id
+      ${where}
+      ORDER BY log.created_at DESC
+      LIMIT $${params.length}
+      `,
+      params,
+    );
   }
 }
