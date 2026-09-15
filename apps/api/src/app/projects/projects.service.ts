@@ -1,5 +1,5 @@
 import {
-  Injectable, NotFoundException, BadRequestException, 
+  Injectable, NotFoundException, BadRequestException, ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
@@ -231,9 +231,12 @@ if (!project) throw new NotFoundException('Project not found');
   }
 
   // ── Update project ──
-  async update(id: string, dto: UpdateProjectDto) {
+  async update(id: string, dto: UpdateProjectDto, actorId: string, actorRole: string) {
     const project = await this.projectRepo.findOne({ where: { id, deletedAt: IsNull() } });
     if (!project) throw new NotFoundException('Project not found');
+    if (actorRole?.toLowerCase() !== 'admin' && project.createdBy !== actorId) {
+      throw new ForbiddenException('Only the project creator or an Admin can edit this project.');
+    }
 
     if (dto.name)        project.name        = dto.name;
     if (dto.description !== undefined) project.description = dto.description;
@@ -279,9 +282,12 @@ return this.projectRepo.save(project);
   }
 
   // ── Delete project (soft) ──
-  async remove(id: string) {
+  async remove(id: string, actorId: string, actorRole: string) {
     const project = await this.projectRepo.findOne({ where: { id } });
     if (!project) throw new NotFoundException('Project not found');
+    if (actorRole?.toLowerCase() !== 'admin' && project.createdBy !== actorId) {
+      throw new ForbiddenException('Only the project creator or an Admin can delete this project.');
+    }
     project.deletedAt = new Date();
     project.isActive  = false;
     await this.projectRepo.save(project);

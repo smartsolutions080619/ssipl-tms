@@ -39,24 +39,28 @@ export class NotificationsService {
   }
 
   // ── Task assigned notification ──
-  async notifyTaskAssigned(userId: string, taskNumber: string, taskTitle: string) {
+  // taskId drives the deep link — the Tasks page opens that task's detail
+  // panel directly via "/tasks?open=<id>" (see Tasks.tsx's openTaskId
+  // handling). Without it, clicking the notification just lands on the
+  // generic Tasks list with nothing opened.
+  async notifyTaskAssigned(userId: string, taskNumber: string, taskTitle: string, taskId?: string) {
     return this.create(
       userId,
       'Task Assigned',
       `You have been assigned task ${taskNumber}: ${taskTitle}`,
       { type: 'TASK_ASSIGNED', taskNumber },
-      `/tasks`,  // frontend route — Tasks page, user can search by taskNumber
+      taskId ? `/tasks?open=${taskId}` : `/tasks`,
     );
   }
 
   // ── Task status changed ──
-  async notifyStatusChanged(userId: string, taskNumber: string, taskTitle: string, oldStatus: string, newStatus: string) {
+  async notifyStatusChanged(userId: string, taskNumber: string, taskTitle: string, oldStatus: string, newStatus: string, taskId?: string) {
     return this.create(
       userId,
       `Task ${taskNumber} status updated`,
       `Status changed: ${oldStatus.replace('_',' ')} → ${newStatus.replace('_',' ')}`,
       { type: 'STATUS_CHANGED', taskNumber },
-      `/tasks`,
+      taskId ? `/tasks?open=${taskId}` : `/tasks`,
     );
   }
 

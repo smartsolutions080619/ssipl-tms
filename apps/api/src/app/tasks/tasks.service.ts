@@ -369,7 +369,7 @@ export class TasksService {
 
     if (dto.assigneeId && dto.assigneeId !== reporterId) {
       await this.notificationsService.notifyTaskAssigned(
-        dto.assigneeId, saved.taskNumber, saved.title,
+        dto.assigneeId, saved.taskNumber, saved.title, saved.id,
       );
     }
 
@@ -382,7 +382,7 @@ export class TasksService {
         'Task reported under your name',
         `${saved.taskNumber}: "${saved.title}" was created with you as the reporter`,
         undefined,
-        `/tasks/${saved.id}`,
+        `/tasks?open=${saved.id}`,
       );
     }
 
@@ -416,7 +416,7 @@ export class TasksService {
         'Task reported under your name',
         `${saved.taskNumber}: "${saved.title}" now has you as the reporter`,
         undefined,
-        `/tasks/${saved.id}`,
+        `/tasks?open=${saved.id}`,
       );
     }
 
@@ -467,7 +467,7 @@ export class TasksService {
     );
 
     if (assigneeId !== userId) {
-      await this.notificationsService.notifyTaskAssigned(assigneeId, task.taskNumber, task.title);
+      await this.notificationsService.notifyTaskAssigned(assigneeId, task.taskNumber, task.title, task.id);
     }
 
     return {
@@ -523,6 +523,7 @@ export class TasksService {
         `Task ${task.taskNumber} status updated`,
         `Status changed: ${oldStatus.replace('_', ' ')} → ${status.replace('_', ' ')}`,
         { taskNumber: task.taskNumber, type: 'STATUS_CHANGED' },
+        `/tasks?open=${taskId}`,
       );
     }
 
@@ -556,7 +557,7 @@ export class TasksService {
     );
 
     if (reassignTo && reassignTo !== oldAssignee) {
-      await this.notificationsService.notifyTaskAssigned(reassignTo, task.taskNumber, task.title);
+      await this.notificationsService.notifyTaskAssigned(reassignTo, task.taskNumber, task.title, task.id);
     }
 
     if (oldAssignee) {
@@ -565,6 +566,7 @@ export class TasksService {
         'Task Sent Back',
         `Task ${task.taskNumber} was sent back: ${reason || 'Needs revision'}`,
         { taskNumber: task.taskNumber, type: 'TASK_REJECTED' },
+        `/tasks?open=${taskId}`,
       );
     }
 
@@ -744,6 +746,7 @@ export class TasksService {
         `⏰ Task deadline extended: ${task.taskNumber}`,
         `Deadline for "${task.title}" extended to ${new Date(newDueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`,
         { type: 'DEADLINE_EXTENDED', taskId },
+        `/tasks?open=${taskId}`,
       );
     }
 

@@ -49,17 +49,17 @@ export class ProjectsController {
   @Put(':id')
   @Roles(Role.ADMIN, Role.MANAGER)
   @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Update project' })
-  async update(@Param('id') id: string, @Body() body: any) {
-    return this.projectsService.update(id, body);
+  @ApiOperation({ summary: "Update project — only the project's creator or an Admin may edit it" })
+  async update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
+    return this.projectsService.update(id, body, user.userId, user.role);
   }
 
   @Delete(':id')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.MANAGER)
   @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Delete project (admin only)' })
-  async remove(@Param('id') id: string) {
-    return this.projectsService.remove(id);
+  @ApiOperation({ summary: "Delete project — only the project's creator or an Admin may delete it" })
+  async remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.projectsService.remove(id, user.userId, user.role);
   }
 
   // ── Members ──
