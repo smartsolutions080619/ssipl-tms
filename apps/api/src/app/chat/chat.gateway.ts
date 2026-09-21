@@ -284,6 +284,45 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.getRooms(client);
   }
 
+  // ── Delete Direct Message conversation (Global Admin only) ──
+  // Removes the whole conversation — messages, memberships and the room —
+  // for both participants, so it is limited to Admins (same rule as
+  // delete_channel) and to DMs the Admin is actually part of.
+  @SubscribeMessage('delete_dm')
+  async deleteDm(@ConnectedSocket() client: Socket, @MessageBody() roomId: string) {
+    const role = (client.data.user?.role || '').toLowerCase();
+    if (role !== 'admin') {
+      client.emit('error', { message: 'Only Admins can delete direct messages' });
+      return;
+    }
+
+    const [room] = await this.dataSource.query(
+      `SELECT r.type FROM tenant_ssipl.chat_rooms r
+       WHERE r.id = $1
+         AND EXISTS (SELECT 1 FROM tenant_ssipl.chat_room_members WHERE room_id = r.id AND user_id::text = $2)`,
+      [roomId, client.data.userId]
+    );
+    if (!room || room.type !== 'direct') {
+      client.emit('error', { message: 'Direct message not found' });
+      return;
+    }
+
+    const members = await this.dataSource.query(
+      `SELECT user_id FROM tenant_ssipl.chat_room_members WHERE room_id = $1`,
+      [roomId]
+    );
+    await this.dataSource.query(`DELETE FROM tenant_ssipl.chat_messages WHERE room_id = $1`, [roomId]);
+    await this.dataSource.query(`DELETE FROM tenant_ssipl.chat_room_members WHERE room_id = $1`, [roomId]);
+    await this.dataSource.query(`DELETE FROM tenant_ssipl.chat_rooms WHERE id = $1`, [roomId]);
+
+    // Drop it from every participant's sidebar (the Admin's own socket included)
+    client.emit('dm_deleted', { roomId });
+    for (const m of members) {
+      const socketId = this.onlineUsers.get(String(m.user_id));
+      if (socketId && socketId !== client.id) this.server.to(socketId).emit('dm_deleted', { roomId });
+    }
+  }
+
   // ── Create Broadcast Channel (Admin only) ──
   @SubscribeMessage('create_channel')
   async createChannel(@ConnectedSocket() client: Socket, @MessageBody() data: {
