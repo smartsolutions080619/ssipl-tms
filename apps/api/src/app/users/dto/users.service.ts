@@ -461,15 +461,23 @@ export class UsersService {
     return this.getMyProfile(userId);
   }
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  // requireCurrent is true for Admin accounts only — they must prove they know the existing password.
+  async changePassword(userId: string, newPassword: string, requireCurrent = false, currentPassword?: string) {
+    if (!newPassword || newPassword.length < 6) {
+      throw new BadRequestException('Password must be at least 6 characters.');
+    }
+
     const [user] = await this.userRepo.query(
       `SELECT id, password_hash FROM tenant_ssipl.users WHERE id = $1`,
       [userId]
     );
     if (!user) throw new NotFoundException('User not found');
 
-    const valid = await bcrypt.compare(currentPassword, user.password_hash);
-    if (!valid) throw new BadRequestException('Current password is incorrect');
+    if (requireCurrent) {
+      if (!currentPassword) throw new BadRequestException('Current password is required.');
+      const valid = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!valid) throw new BadRequestException('Current password is incorrect');
+    }
 
     const newHash = await bcrypt.hash(newPassword, 10);
     await this.userRepo.query(

@@ -437,8 +437,7 @@ export class LeavesService {
   }
 
   // ── Restore the used-balance deduction for a leave that's being
-  //    cancelled or deleted after having been approved. Shared by
-  //    cancel() and delete() below. ──
+  //    cancelled after having been approved. ──
   private async restoreBalance(leave: LeaveRequest) {
     const type = await this.typeRepo.findOne({ where: { code: leave.leaveType } });
     if (!type || type.isUnlimited) return;
@@ -484,15 +483,13 @@ export class LeavesService {
   }
 
   // ── Delete leave request (admin) ──
-  //    Any status can be deleted, including APPROVED. An approved
-  //    request has already deducted from the balance ledger (see
-  //    approve() above), so deleting one restores that balance first —
-  //    the same restore cancel() does — to keep the ledger correct.
+  //    Only clears the entry from the lists — it never touches the
+  //    employee's leave balance. Balance changes belong to approve()
+  //    and cancel(); deleting an approved request leaves its days
+  //    deducted.
   async delete(leaveId: string) {
     const leave = await this.leaveRepo.findOne({ where: { id: leaveId } });
     if (!leave || leave.deletedAt) throw new NotFoundException('Leave request not found');
-
-    if (leave.status === LeaveStatus.APPROVED) await this.restoreBalance(leave);
 
     leave.deletedAt = new Date();
     await this.leaveRepo.save(leave);
