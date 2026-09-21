@@ -163,7 +163,7 @@ export class LeavesController {
 
   @Delete(':id')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Delete a leave request (admin) — restores the balance first if it was approved' })
+  @ApiOperation({ summary: 'Delete a leave request (admin) — removes it from the lists only, leave balances are not changed' })
   async delete(@Param('id') id: string) {
     return this.leavesService.delete(id);
   }

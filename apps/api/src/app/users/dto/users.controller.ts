@@ -40,9 +40,10 @@ export class UsersController {
   @ApiOperation({ summary: 'Change my password' })
   async changePassword(
     @CurrentUser() user: any,
-    @Body() body: { currentPassword: string; newPassword: string },
+    @Body() body: { newPassword: string; currentPassword?: string },
   ) {
-    return this.usersService.changePassword(user.userId, body.currentPassword, body.newPassword);
+    const isAdmin = user.role?.toLowerCase() === Role.ADMIN;
+    return this.usersService.changePassword(user.userId, body.newPassword, isAdmin, body.currentPassword);
   }
 
   @Get('profile')
