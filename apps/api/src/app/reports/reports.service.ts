@@ -69,7 +69,8 @@ export class ReportsService {
     const qb          = await this.buildBaseQuery(currentUser, query);
     const priorityRows = await qb.clone().select('task.priority', 'priority').addSelect('COUNT(*)', 'count').groupBy('task.priority').getRawMany();
     const overdueQb   = await this.buildBaseQuery(currentUser, query);
-    const overdueCount = await overdueQb.andWhere('task.due_date IS NOT NULL').andWhere('task.due_date < NOW()').andWhere(`task.status NOT IN ('DONE','CANCELLED')`).getCount();
+    // A task due today isn't overdue yet — only once its calendar day has passed.
+    const overdueCount = await overdueQb.andWhere('task.due_date IS NOT NULL').andWhere('task.due_date::date < CURRENT_DATE').andWhere(`task.status NOT IN ('DONE','CANCELLED')`).getCount();
     return { byPriority: priorityRows.map(r => ({ priority: r.priority, count: Number(r.count) })), overdueCount };
   }
 
@@ -175,7 +176,7 @@ export class ReportsService {
     const tasks = await this.taskRepo.query(
       `SELECT status, priority, type,
               COUNT(*) AS count,
-              COUNT(CASE WHEN due_date IS NOT NULL AND due_date < NOW() AND status NOT IN ('DONE','CANCELLED') THEN 1 END) AS overdue
+              COUNT(CASE WHEN due_date IS NOT NULL AND due_date::date < CURRENT_DATE AND status NOT IN ('DONE','CANCELLED') THEN 1 END) AS overdue
        FROM tenant_ssipl.tasks
        WHERE assignee_id = $1 AND deleted_at IS NULL
        GROUP BY status, priority, type`, [userId]
@@ -227,7 +228,7 @@ export class ReportsService {
               COUNT(t.id) AS total_tasks,
               COUNT(CASE WHEN t.status = 'DONE' THEN 1 END) AS done,
               COUNT(CASE WHEN t.status = 'IN_PROGRESS' THEN 1 END) AS in_progress,
-              COUNT(CASE WHEN t.due_date IS NOT NULL AND t.due_date < NOW() AND t.status NOT IN ('DONE','CANCELLED') THEN 1 END) AS overdue
+              COUNT(CASE WHEN t.due_date IS NOT NULL AND t.due_date::date < CURRENT_DATE AND t.status NOT IN ('DONE','CANCELLED') THEN 1 END) AS overdue
        FROM tenant_ssipl.users u
        JOIN tenant_ssipl.user_departments ud ON ud.user_id = u.id AND ud.department_id = $1
        LEFT JOIN tenant_ssipl.roles r ON r.id::text = u.role_id::text

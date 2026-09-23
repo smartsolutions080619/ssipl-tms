@@ -66,7 +66,7 @@ export class ProjectsService {
         COUNT(DISTINCT t.id)::int        AS total_tasks,
         COUNT(DISTINCT CASE WHEN t.status = 'DONE' THEN t.id END)::int AS completed_tasks,
         COUNT(DISTINCT CASE WHEN t.status = 'IN_PROGRESS' THEN t.id END)::int AS active_tasks,
-        COUNT(DISTINCT CASE WHEN t.deleted_at IS NULL AND t.due_date < NOW() AND t.status NOT IN ('DONE','CANCELLED') THEN t.id END)::int AS overdue_tasks
+        COUNT(DISTINCT CASE WHEN t.deleted_at IS NULL AND t.due_date::date < CURRENT_DATE AND t.status NOT IN ('DONE','CANCELLED') THEN t.id END)::int AS overdue_tasks
       FROM tenant_ssipl.projects p
       LEFT JOIN tenant_ssipl.users u  ON u.id::text = p.created_by::text
       LEFT JOIN tenant_ssipl.users mgr ON mgr.id::text = p.manager_id::text
@@ -96,7 +96,7 @@ export class ProjectsService {
         COUNT(DISTINCT CASE WHEN t.status IN ('TODO') THEN t.id END)::int AS todo_tasks,
         COUNT(DISTINCT CASE WHEN t.status = 'IN_PROGRESS' THEN t.id END)::int AS active_tasks,
         COUNT(DISTINCT CASE WHEN t.status = 'IN_REVIEW' THEN t.id END)::int AS review_tasks,
-        COUNT(DISTINCT CASE WHEN t.deleted_at IS NULL AND t.due_date < NOW() AND t.status NOT IN ('DONE','CANCELLED') THEN t.id END)::int AS overdue_tasks
+        COUNT(DISTINCT CASE WHEN t.deleted_at IS NULL AND t.due_date::date < CURRENT_DATE AND t.status NOT IN ('DONE','CANCELLED') THEN t.id END)::int AS overdue_tasks
       FROM tenant_ssipl.projects p
       LEFT JOIN tenant_ssipl.users u ON u.id::text = p.created_by::text
       LEFT JOIN tenant_ssipl.users mgr ON mgr.id::text = p.manager_id::text
