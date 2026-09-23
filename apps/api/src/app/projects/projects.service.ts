@@ -367,7 +367,15 @@ return this.projectRepo.save(project);
     return { message: 'Member removed' };
   }
  // ── Get project tasks ──
-  async getProjectTasks(projectId: string) {
+  // Private tasks (see tasks.service.ts) are excluded here for everyone
+  // except Admin, the assignee, and the reporter — same rule as the main
+  // task list, so a project's Tasks tab can't be used to route around it.
+  async getProjectTasks(projectId: string, currentUser?: { userId: string; role?: string }) {
+    const isAdmin = (currentUser?.role || '').toLowerCase() === 'admin';
+    const privacyClause = isAdmin || !currentUser
+      ? ''
+      : `AND (t.is_private = false OR t.assignee_id = $2 OR t.reporter_id = $2)`;
+
     return this.projectRepo.query(`
       SELECT t.*,
         a.first_name AS assignee_first_name, a.last_name AS assignee_last_name, a.email AS assignee_email,
@@ -376,8 +384,9 @@ return this.projectRepo.save(project);
       LEFT JOIN tenant_ssipl.users a ON a.id::text = t.assignee_id::text
       LEFT JOIN tenant_ssipl.users r ON r.id::text = t.reporter_id::text
       WHERE t.project_id = $1 AND t.deleted_at IS NULL
+      ${privacyClause}
       ORDER BY t.created_at DESC
-    `, [projectId]);
+    `, isAdmin || !currentUser ? [projectId] : [projectId, currentUser!.userId]);
   }
 
   // ── Auto-calculate progress from tasks ──

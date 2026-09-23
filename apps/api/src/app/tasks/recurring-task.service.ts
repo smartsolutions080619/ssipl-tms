@@ -80,6 +80,9 @@ export class RecurringTaskService {
       recurrenceFrequency: template.recurrenceFrequency,
       recurrenceParentId: template.id, // points back to original
       dueDate,
+      // A private template's occurrences must stay private too — otherwise
+      // the setting would silently stop applying on the very next spawn.
+      isPrivate:          template.isPrivate,
     });
 
     const saved = await this.taskRepo.save(spawned);

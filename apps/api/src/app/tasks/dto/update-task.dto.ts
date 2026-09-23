@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsUUID, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsUUID, IsDateString, IsBoolean } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { TaskStatus } from '../task.entity';
 
@@ -47,4 +47,9 @@ export class UpdateTaskDto {
   @IsOptional()
   @IsDateString()
   dueDate?: string;
+
+  @ApiProperty({ required: false, description: "Visible only to Admin, the assignee, and the reporter — overrides all other visibility rules." })
+  @IsOptional()
+  @IsBoolean()
+  isPrivate?: boolean;
 }

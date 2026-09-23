@@ -34,8 +34,8 @@ export class ProjectsController {
 
   @Get(':id/tasks')
   @ApiOperation({ summary: 'Get all tasks in a project' })
-  async getProjectTasks(@Param('id') id: string) {
-    return this.projectsService.getProjectTasks(id);
+  async getProjectTasks(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.projectsService.getProjectTasks(id, { userId: user.userId, role: user.role });
   }
 
   @Post()
