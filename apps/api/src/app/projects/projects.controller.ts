@@ -1,14 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import {
   Controller, Get, Post, Put, Delete, Patch,
-  Body, Param, UseGuards, Query,
+  Body, Param, UseGuards, Query, ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { Role } from '../common/enums/roles.enum';
+import { Role, Permission } from '../common/enums/roles.enum';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ProjectMemberRole } from './project-member.entity';
 import { ProjectStatus, ProjectPriority } from './project.entity';
@@ -39,10 +39,13 @@ export class ProjectsController {
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.MANAGER)
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Create a new project (admin/manager)' })
+  @ApiOperation({ summary: 'Create a new project (Admin, or any role granted the "Create Projects" permission)' })
   async create(@Body() body: any, @CurrentUser() user: any) {
+    const isAdmin = user.role?.toLowerCase() === Role.ADMIN;
+    const canCreate = isAdmin || (user.permissions || []).includes(Permission.PROJECT_CREATE);
+    if (!canCreate) {
+      throw new ForbiddenException('You do not have permission to create projects.');
+    }
     return this.projectsService.create(body, user.userId);
   }
 

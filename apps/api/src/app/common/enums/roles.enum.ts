@@ -17,9 +17,10 @@ export enum Role {
     TASK_UPDATE = 'task:update',
     TASK_DELETE = 'task:delete',
     TASK_ASSIGN = 'task:assign',
-    TASK_VIEW_ALL = 'task:view_all',
-    TASK_VIEW_DEPARTMENT = 'task:view_department',
-  
+
+    // Projects
+    PROJECT_CREATE = 'project:create',
+
     // Reports
     REPORT_READ = 'report:read',
   
