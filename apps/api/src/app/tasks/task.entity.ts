@@ -86,6 +86,11 @@ export class Task {
   @Column({ name: 'original_due_date', nullable: true })
   originalDueDate!: Date | null;
 
+  // Visible only to Admin, the assignee, and the reporter — overrides every
+  // other visibility rule (department/role/user-based), see tasks.service.ts.
+  @Column({ name: 'is_private', default: false })
+  isPrivate!: boolean;
+
   // ── Recurrence ──
   @Column({ name: 'is_recurring', default: false })
   isRecurring!: boolean;

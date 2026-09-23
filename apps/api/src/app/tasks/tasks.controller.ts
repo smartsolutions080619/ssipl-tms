@@ -38,26 +38,26 @@ export class TasksController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get task by ID' })
-  async findOne(@Param('id') id: string) {
-    return this.tasksService.findOne(id);
+  async findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.tasksService.findOne(id, { userId: user.userId, role: user.role });
   }
 
   @Get(':id/subtasks')
   @ApiOperation({ summary: 'Get subtasks of a task' })
-  async getSubTasks(@Param('id') id: string) {
-    return this.tasksService.findSubTasks(id);
+  async getSubTasks(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.tasksService.findSubTasks(id, { userId: user.userId, role: user.role });
   }
 
   @Get(':id/comments')
   @ApiOperation({ summary: 'Get comments for a task' })
-  async getComments(@Param('id') id: string) {
-    return this.tasksService.getTaskComments(id);
+  async getComments(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.tasksService.getTaskComments(id, { userId: user.userId, role: user.role });
   }
 
   @Get(':id/activity')
   @ApiOperation({ summary: 'Get activity log for a task' })
-  async getActivity(@Param('id') id: string) {
-    return this.tasksService.getTaskActivity(id);
+  async getActivity(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.tasksService.getTaskActivity(id, { userId: user.userId, role: user.role });
   }
 
   @Post()
@@ -73,13 +73,13 @@ export class TasksController {
     @Body('content') content: string,
     @CurrentUser() user: any,
   ) {
-    return this.tasksService.addComment(id, content, user.userId);
+    return this.tasksService.addComment(id, content, user.userId, user.role);
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Update a task' })
   async update(@Param('id') id: string, @Body() dto: UpdateTaskDto, @CurrentUser() user: any) {
-    return this.tasksService.update(id, dto, user.userId);
+    return this.tasksService.update(id, dto, user.userId, user.role);
   }
 
   @Patch(':id/assign')
@@ -89,13 +89,13 @@ export class TasksController {
     @Body('assigneeId') assigneeId: string,
     @CurrentUser() user: any,
   ) {
-    return this.tasksService.assignTask(id, assigneeId, user.userId);
+    return this.tasksService.assignTask(id, assigneeId, user.userId, user.role);
   }
 
   @Patch(':id/unassign')
   @ApiOperation({ summary: 'Unassign task' })
   async unassign(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.tasksService.unassignTask(id, user.userId);
+    return this.tasksService.unassignTask(id, user.userId, user.role);
   }
 
   @Patch(':id/status')
@@ -105,7 +105,7 @@ export class TasksController {
     @Body('status') status: string,
     @CurrentUser() user: any,
   ) {
-    return this.tasksService.changeStatus(id, status, user.userId);
+    return this.tasksService.changeStatus(id, status, user.userId, user.role);
   }
 
   @Patch(':id/reject')
@@ -116,13 +116,13 @@ export class TasksController {
     @Body('reassignTo') reassignTo: string,
     @CurrentUser() user: any,
   ) {
-    return this.tasksService.rejectTask(id, reason, reassignTo, user.userId);
+    return this.tasksService.rejectTask(id, reason, reassignTo, user.userId, user.role);
   }
 
   @Patch(':id/undo')
   @ApiOperation({ summary: 'Undo last status change' })
   async undo(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.tasksService.undoTask(id, user.userId);
+    return this.tasksService.undoTask(id, user.userId, user.role);
   }
 
   @Patch(':id/due-date')
@@ -132,7 +132,7 @@ export class TasksController {
     @Body('dueDate') dueDate: string,
     @CurrentUser() user: any,
   ) {
-    return this.tasksService.updateDueDate(id, dueDate, user.userId);
+    return this.tasksService.updateDueDate(id, dueDate, user.userId, user.role);
   }
 
   @Patch(':id/priority')
@@ -142,7 +142,7 @@ export class TasksController {
     @Body('priority') priority: string,
     @CurrentUser() user: any,
   ) {
-    return this.tasksService.updatePriority(id, priority, user.userId);
+    return this.tasksService.updatePriority(id, priority, user.userId, user.role);
   }
 
   // ── Extend task deadline ──
@@ -153,7 +153,7 @@ export class TasksController {
     @Body('dueDate') dueDate: string,
     @CurrentUser() user: any,
   ) {
-    return this.tasksService.extendDeadline(id, dueDate, user.userId);
+    return this.tasksService.extendDeadline(id, dueDate, user.userId, user.role);
   }
 
   @Delete(':id')

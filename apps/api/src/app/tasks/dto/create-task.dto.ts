@@ -63,6 +63,11 @@ export class CreateTaskDto {
   @IsDateString()
   dueDate?: string;
 
+  @ApiProperty({ required: false, description: "Visible only to Admin, the assignee, and the reporter — overrides all other visibility rules." })
+  @IsOptional()
+  @IsBoolean()
+  isPrivate?: boolean;
+
   // ── Recurrence fields ──
   @ApiProperty({ required: false })
   @IsOptional()

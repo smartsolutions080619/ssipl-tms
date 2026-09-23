@@ -54,6 +54,7 @@ export class TasksService {
         'task.extension_count', 'task.original_due_date', 'task.last_extended_at',
         'task.is_recurring', 'task.recurrence_frequency', 'task.recurrence_end_date',
         'task.next_recurrence_date', 'task.department_id', 'task.project_id',
+        'task.is_private',
       ])
       .addSelect('assignee.first_name', 'assignee_first_name')
       .addSelect('assignee.last_name',  'assignee_last_name')
@@ -235,9 +236,14 @@ export class TasksService {
       );
       const visibleUserIds: string[] = visibleRows.map((r: { target_user_id: string }) => r.target_user_id);
 
+      // A private task is visible only to Admin, its assignee, and its
+      // reporter — it overrides the user-visibility grant entirely, so the
+      // "OR assignee/reporter IN (:...visibleUserIds)" branch is additionally
+      // gated on task.is_private = false. Being the task's own assignee or
+      // reporter still always wins, private or not.
       if (visibleUserIds.length > 0) {
         query.andWhere(
-          '(task.assignee_id = :userId OR task.reporter_id = :userId OR task.assignee_id IN (:...visibleUserIds) OR task.reporter_id IN (:...visibleUserIds))',
+          '(task.assignee_id = :userId OR task.reporter_id = :userId OR (task.is_private = false AND (task.assignee_id IN (:...visibleUserIds) OR task.reporter_id IN (:...visibleUserIds))))',
           { userId: currentUser.userId, visibleUserIds },
         );
       } else {
@@ -247,7 +253,7 @@ export class TasksService {
         );
       }
     }
-    // Admin bypasses all visibility rules — no filter applied.
+    // Admin bypasses all visibility rules, private tasks included — no filter applied.
 
     // Apply filters
     if (filters?.status)     query.andWhere('task.status = :status',           { status: filters.status });
@@ -288,6 +294,7 @@ export class TasksService {
       departmentName: r.department_name    ?? null,
       projectId:      r.task_project_id    ?? null,
       projectName:    r.project_name       ?? null,
+      isPrivate:      r.task_is_private    ?? false,
       assignee: r.task_assignee_id ? {
         id:        r.task_assignee_id,
         firstName: r.assignee_first_name,
@@ -302,13 +309,26 @@ export class TasksService {
     }));
   }
 
-  async findOne(id: string) {
+  // Private-task gate: only Admin, the assignee, and the reporter may reach a
+  // private task through any by-id endpoint. 404 (not 403) so an unauthorized
+  // request can't distinguish "doesn't exist" from "exists but is private."
+  private assertTaskAccess(task: Task, currentUser?: { userId: string; role?: string }) {
+    if (!task.isPrivate || !currentUser) return;
+    const roleLower = (currentUser.role || '').toLowerCase();
+    if (roleLower === 'admin') return;
+    if (task.assigneeId === currentUser.userId || task.reporterId === currentUser.userId) return;
+    throw new NotFoundException(`Task ${task.id} not found`);
+  }
+
+  async findOne(id: string, currentUser?: { userId: string; role?: string }) {
     const task = await this.taskRepo.findOne({ where: { id, deletedAt: IsNull() } });
     if (!task) throw new NotFoundException(`Task ${id} not found`);
+    this.assertTaskAccess(task, currentUser);
     return task;
   }
 
-  async findSubTasks(parentId: string) {
+  async findSubTasks(parentId: string, currentUser?: { userId: string; role?: string }) {
+    await this.findOne(parentId, currentUser); // enforces the parent's privacy gate
     return this.taskRepo.find({ where: { parentTaskId: parentId, deletedAt: IsNull() } });
   }
 
@@ -354,6 +374,7 @@ export class TasksService {
       projectId:    dto.projectId,
       departmentId: dto.departmentId ?? null,
       dueDate:      dto.dueDate ? new Date(dto.dueDate) : undefined,
+      isPrivate:    dto.isPrivate ?? false,
       // ── Recurrence ──
       isRecurring:          dto.isRecurring ?? false,
       recurrenceFrequency:  dto.recurrenceFrequency ?? null,
@@ -393,8 +414,8 @@ export class TasksService {
     return saved;
   }
 
-  async update(id: string, dto: UpdateTaskDto, userId: string) {
-    const task     = await this.findOne(id);
+  async update(id: string, dto: UpdateTaskDto, userId: string, role?: string) {
+    const task     = await this.findOne(id, { userId, role });
     const oldValue = { status: task.status };
     const oldAssigneeId = task.assigneeId;
     const oldReporterId = task.reporterId;
@@ -428,7 +449,7 @@ export class TasksService {
   }
 
   async remove(id: string, requester: { userId: string; role?: string; permissions?: string[] }) {
-    const task = await this.findOne(id);
+    const task = await this.findOne(id, requester);
 
     // Admins and anyone with task:delete can remove any task. Otherwise, an
     // employee may only delete a task that's genuinely their own — one they
@@ -458,8 +479,8 @@ export class TasksService {
     return { message: `Task ${task.taskNumber} deleted successfully` };
   }
 
-  async assignTask(taskId: string, assigneeId: string, userId: string) {
-    const task        = await this.findOne(taskId);
+  async assignTask(taskId: string, assigneeId: string, userId: string, role?: string) {
+    const task        = await this.findOne(taskId, { userId, role });
     const oldAssignee = task.assigneeId;
     task.assigneeId   = assigneeId;
     const saved       = await this.taskRepo.save(task);
@@ -487,8 +508,8 @@ export class TasksService {
     });
   }
 
-  async unassignTask(taskId: string, userId: string) {
-    const task = await this.findOne(taskId);
+  async unassignTask(taskId: string, userId: string, role?: string) {
+    const task = await this.findOne(taskId, { userId, role });
     task.assigneeId = null as unknown as string;
     await this.taskRepo.save(task);
 
@@ -497,8 +518,8 @@ export class TasksService {
     return { message: `Task ${task.taskNumber} unassigned successfully` };
   }
 
-  async changeStatus(taskId: string, status: string, userId: string) {
-    const task      = await this.findOne(taskId);
+  async changeStatus(taskId: string, status: string, userId: string, role?: string) {
+    const task      = await this.findOne(taskId, { userId, role });
     const oldStatus = task.status;
 
     const validTransitions: Record<string, string[]> = {
@@ -537,8 +558,8 @@ export class TasksService {
     };
   }
 
-  async rejectTask(taskId: string, reason: string, reassignTo: string, userId: string) {
-    const task = await this.findOne(taskId);
+  async rejectTask(taskId: string, reason: string, reassignTo: string, userId: string, role?: string) {
+    const task = await this.findOne(taskId, { userId, role });
 
     if (!['IN_REVIEW', 'DONE', 'CANCELLED'].includes(task.status)) {
       throw new BadRequestException(
@@ -580,8 +601,8 @@ export class TasksService {
     };
   }
 
-  async undoTask(taskId: string, userId: string) {
-    const task = await this.findOne(taskId);
+  async undoTask(taskId: string, userId: string, role?: string) {
+    const task = await this.findOne(taskId, { userId, role });
 
     const undoMap: Record<string, string> = {
       DONE:        'IN_PROGRESS',
@@ -611,8 +632,8 @@ export class TasksService {
     };
   }
 
-  async getTaskComments(taskId: string) {
-    await this.findOne(taskId);
+  async getTaskComments(taskId: string, currentUser?: { userId: string; role?: string }) {
+    await this.findOne(taskId, currentUser);
     return this.taskRepo.query(
       `SELECT c.*, u.first_name, u.last_name, u.email
        FROM tenant_ssipl.comments c
@@ -623,8 +644,8 @@ export class TasksService {
     );
   }
 
-  async addComment(taskId: string, content: string, userId: string) {
-    await this.findOne(taskId);
+  async addComment(taskId: string, content: string, userId: string, role?: string) {
+    await this.findOne(taskId, { userId, role });
 
     const result = await this.taskRepo.query(
       `INSERT INTO tenant_ssipl.comments (id, task_id, user_id, content, created_at, updated_at)
@@ -642,8 +663,8 @@ export class TasksService {
     return result[0];
   }
 
-  async getTaskActivity(taskId: string) {
-    await this.findOne(taskId);
+  async getTaskActivity(taskId: string, currentUser?: { userId: string; role?: string }) {
+    await this.findOne(taskId, currentUser);
     return this.taskRepo.query(
       `SELECT a.*, u.first_name, u.last_name
        FROM tenant_ssipl.activity_logs a
@@ -654,8 +675,8 @@ export class TasksService {
     );
   }
 
-  async updateDueDate(taskId: string, dueDate: string, userId: string) {
-    const task   = await this.findOne(taskId);
+  async updateDueDate(taskId: string, dueDate: string, userId: string, role?: string) {
+    const task   = await this.findOne(taskId, { userId, role });
     const old    = task.dueDate;
     task.dueDate = dueDate ? new Date(dueDate) : null;
     const saved  = await this.taskRepo.save(task);
@@ -672,8 +693,8 @@ export class TasksService {
     };
   }
 
-  async updatePriority(taskId: string, priority: string, userId: string) {
-    const task    = await this.findOne(taskId);
+  async updatePriority(taskId: string, priority: string, userId: string, role?: string) {
+    const task    = await this.findOne(taskId, { userId, role });
     const old     = task.priority;
     task.priority = priority;
     const saved   = await this.taskRepo.save(task);
@@ -720,8 +741,8 @@ export class TasksService {
   }
 
   // ── Extend task deadline ──
-  async extendDeadline(taskId: string, newDueDate: string, userId: string) {
-    const task = await this.findOne(taskId);
+  async extendDeadline(taskId: string, newDueDate: string, userId: string, role?: string) {
+    const task = await this.findOne(taskId, { userId, role });
 
     if (!task.dueDate) throw new BadRequestException('Task has no due date to extend');
 
