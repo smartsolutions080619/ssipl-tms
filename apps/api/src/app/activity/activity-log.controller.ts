@@ -24,7 +24,7 @@ export class ActivityLogController {
   @ApiOperation({ summary: 'Get my activity log' })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getMyActivity(@CurrentUser() user: any) {
-    const canViewAll = user.role?.toLowerCase() === 'admin' || (user.permissions || []).includes('task:view_all');
+    const canViewAll = user.role?.toLowerCase() === 'admin';
     return this.activityLogService.getUserActivity(user.userId, canViewAll);
   }
 

@@ -82,7 +82,7 @@ import {
           description: 'Can manage tasks and view users',
           permissions: [
             'user:read', 'task:create', 'task:read', 'task:update', 'task:assign',
-            'task:view_department', 'report:read',
+            'report:read',
           ],
         },
         {
